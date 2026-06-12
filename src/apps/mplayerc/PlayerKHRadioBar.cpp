@@ -781,27 +781,44 @@ LRESULT CKHRadioDlg::OnKHRadioTrack(WPARAM wParam, LPARAM lParam)
 	}
 
 	if (!m_bPlaylistStarted) {
+		// Opening media closes the current item and waits on the graph thread.
+		// Doing that while a track is still mid-open (MLS_LOADING) deadlocks the
+		// UI thread against the graph thread, so never open in that state.
+		const auto loadState = pFrame->GetLoadState();
+
 		if (m->bAppend) {
 			pFrame->m_wndPlaylistBar.Append(fis);
 
-			// if playback already ran past the end of the playlist while we
-			// were fetching, jump-start it on the new album
-			const OAFilterState fs = pFrame->GetMediaState();
-			if (fs != State_Running && fs != State_Paused) {
-				if (pFrame->m_wndPlaylistBar.SelectFileInPlaylist(m->audioUrl)) {
-					pFrame->OpenCurPlaylistItem();
+			// Jump-start only if playback genuinely ran dry: stopped AND nothing
+			// is currently loading. While a track is loading it WILL start
+			// playing, so there's nothing to jump-start.
+			if (loadState != MLS_LOADING) {
+				const OAFilterState fs = pFrame->GetMediaState();
+				if (fs != State_Running && fs != State_Paused) {
+					if (pFrame->m_wndPlaylistBar.SelectFileInPlaylist(m->audioUrl)) {
+						pFrame->OpenCurPlaylistItem();
+					}
 				}
 			}
+			m_bPlaylistStarted = true;
 		} else {
+			// Replace (user rolled a new album): must switch now. If a track is
+			// mid-open, requeue this message and retry once the load settles -
+			// closing a loading item would deadlock.
+			if (loadState == MLS_LOADING) {
+				::PostMessageW(m_hWnd, WM_KHRADIO_TRACK, 0, reinterpret_cast<LPARAM>(m.release()));
+				return 0;
+			}
+
 			pFrame->m_wndPlaylistBar.Empty();
 			pFrame->m_wndPlaylistBar.Append(fis);
 			pFrame->OpenCurPlaylistItem();
+			m_bPlaylistStarted = true;
 
 			CStringW status;
 			status.Format(L"Playing: %s", m_currentAlbum.title.GetString());
 			SetStatus(status);
 		}
-		m_bPlaylistStarted = true;
 	} else {
 		pFrame->m_wndPlaylistBar.Append(fis);
 	}
