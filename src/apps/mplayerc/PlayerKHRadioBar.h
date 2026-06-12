@@ -68,6 +68,7 @@ protected:
 
 	afx_msg void OnDestroy();
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+	afx_msg void OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct);
 	afx_msg void OnSelChangeFilters();
 	afx_msg void OnClearFilters();
 	afx_msg void OnAvoidPlayedClicked();

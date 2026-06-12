@@ -23,7 +23,8 @@
 #include "DSUtil/text.h"
 #include "KHInsider.h"
 
-#include <WinInet.h>
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
 
 #include <map>
 #include <regex>
@@ -40,13 +41,51 @@
 // that do not look like they come from a real browser.
 #define KH_USER_AGENT L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
+#ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
+#define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 133
+#endif
+#ifndef WINHTTP_PROTOCOL_FLAG_HTTP2
+#define WINHTTP_PROTOCOL_FLAG_HTTP2 0x1
+#endif
+
 namespace KHInsider
 {
 	using urlData = std::vector<char>;
 
+	// Appends a timestamped line to %APPDATA%\MPC-BE\khradio_debug.log.
+	static void KHLog(LPCWSTR fmt, ...)
+	{
+		CStringW path;
+		if (!AfxGetMyApp()->GetAppSavePath(path)) {
+			return;
+		}
+		path += L"khradio_debug.log";
+
+		CStringW msg;
+		va_list args;
+		va_start(args, fmt);
+		msg.FormatV(fmt, args);
+		va_end(args);
+
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+		CStringW line;
+		line.Format(L"[%02u:%02u:%02u.%03u] %s\r\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg.GetString());
+		const CStringA utf8 = WStrToUTF8(line);
+
+		CFile f;
+		if (f.Open(path, CFile::modeWrite | CFile::modeCreate | CFile::modeNoTruncate | CFile::shareDenyNone)) {
+			f.SeekToEnd();
+			f.Write(utf8.GetString(), utf8.GetLength());
+			f.Close();
+		}
+	}
+
 	// GET or POST (form-urlencoded when 'body' is non-empty) with browser-like
-	// headers. WinInet follows redirects; 'pFinalUrl' (optional) receives the
-	// URL we actually ended up on.
+	// headers over WinHTTP. Cloudflare on downloads.khinsider.com only accepts
+	// browser user-agents speaking HTTP/2, which WinHTTP supports (WinInet's
+	// HTTP/2 option does not take effect and gets a 403). Redirects are
+	// followed; 'pFinalUrl' (optional) receives the URL we actually ended up on.
 	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr)
 	{
 		pData.clear();
@@ -61,19 +100,22 @@ namespace KHInsider
 		uc.dwHostNameLength = static_cast<DWORD>(std::size(host));
 		uc.lpszUrlPath = path;
 		uc.dwUrlPathLength = static_cast<DWORD>(std::size(path));
-		if (!InternetCrackUrlW(url, 0, 0, &uc)) {
+		if (!WinHttpCrackUrl(url, 0, 0, &uc)) {
+			KHLog(L"WinHttpCrackUrl failed for %s (err %lu)", url.GetString(), GetLastError());
 			return false;
 		}
-		const bool bHttps = (uc.nScheme == INTERNET_SCHEME_HTTPS);
 
-		if (auto hInet = InternetOpenW(KH_USER_AGENT, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0)) {
-			if (auto hSession = InternetConnectW(hInet, host, uc.nPort, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 1)) {
-				const DWORD dwFlags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | (bHttps ? INTERNET_FLAG_SECURE : 0);
-				if (auto hRequest = HttpOpenRequestW(hSession,
-													 verb,
-													 path, nullptr,
-													 KHINSIDER_BASE L"/",
-													 nullptr, dwFlags, 1)) {
+		DWORD dwStatus = 0;
+
+		if (auto hSession = WinHttpOpen(KH_USER_AGENT, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0)) {
+			DWORD dwProto = WINHTTP_PROTOCOL_FLAG_HTTP2;
+			WinHttpSetOption(hSession, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &dwProto, sizeof(dwProto));
+
+			if (auto hConnect = WinHttpConnect(hSession, host, uc.nPort, 0)) {
+				const DWORD dwFlags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+				if (auto hRequest = WinHttpOpenRequest(hConnect, verb, path, nullptr,
+													   KHINSIDER_BASE L"/",
+													   WINHTTP_DEFAULT_ACCEPT_TYPES, dwFlags)) {
 
 					CStringW headers =
 						L"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
@@ -83,14 +125,19 @@ namespace KHInsider
 					}
 
 					CStringA requestData(body);
-					if (HttpSendRequestW(hRequest, headers, -1,
-										 body.IsEmpty() ? nullptr : reinterpret_cast<LPVOID>(requestData.GetBuffer()),
-										 requestData.GetLength())) {
+					if (WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1),
+										   body.IsEmpty() ? WINHTTP_NO_REQUEST_DATA : reinterpret_cast<LPVOID>(requestData.GetBuffer()),
+										   requestData.GetLength(), requestData.GetLength(), 0)
+							&& WinHttpReceiveResponse(hRequest, nullptr)) {
+
+						DWORD dwLen = sizeof(dwStatus);
+						WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+											WINHTTP_HEADER_NAME_BY_INDEX, &dwStatus, &dwLen, WINHTTP_NO_HEADER_INDEX);
 
 						std::vector<char> tmp(16 * 1024);
 						for (;;) {
 							DWORD dwSizeRead = 0;
-							if (!InternetReadFile(hRequest, reinterpret_cast<LPVOID>(tmp.data()), tmp.size(), &dwSizeRead) || !dwSizeRead) {
+							if (!WinHttpReadData(hRequest, reinterpret_cast<LPVOID>(tmp.data()), static_cast<DWORD>(tmp.size()), &dwSizeRead) || !dwSizeRead) {
 								break;
 							}
 							pData.insert(pData.end(), tmp.begin(), tmp.begin() + dwSizeRead);
@@ -101,19 +148,31 @@ namespace KHInsider
 
 							if (pFinalUrl) {
 								WCHAR urlBuf[2048] = {};
-								DWORD urlLen = static_cast<DWORD>(std::size(urlBuf));
-								if (InternetQueryOptionW(hRequest, INTERNET_OPTION_URL, urlBuf, &urlLen)) {
+								DWORD urlLen = sizeof(urlBuf);
+								if (WinHttpQueryOption(hRequest, WINHTTP_OPTION_URL, urlBuf, &urlLen)) {
 									*pFinalUrl = urlBuf;
 								}
 							}
 						}
+					} else {
+						KHLog(L"%s %s: send/receive failed (err %lu)", verb, url.GetString(), GetLastError());
 					}
 
-					InternetCloseHandle(hRequest);
+					WinHttpCloseHandle(hRequest);
 				}
-				InternetCloseHandle(hSession);
+				WinHttpCloseHandle(hConnect);
 			}
-			InternetCloseHandle(hInet);
+			WinHttpCloseHandle(hSession);
+		}
+
+		KHLog(L"%s %s -> status %lu, %u bytes%s%s", verb, url.GetString(), dwStatus,
+			  static_cast<unsigned>(pData.size()),
+			  pFinalUrl && !pFinalUrl->IsEmpty() ? L", final: " : L"",
+			  pFinalUrl ? pFinalUrl->GetString() : L"");
+
+		if (dwStatus >= 400) {
+			pData.clear();
+			return false;
 		}
 
 		return !pData.empty();
@@ -264,6 +323,8 @@ namespace KHInsider
 			}
 		}
 
+		KHLog(L"parsed album: '%s', %u tracks", album.title.GetString(), static_cast<unsigned>(album.tracks.size()));
+
 		return !album.tracks.empty();
 	}
 
@@ -330,6 +391,7 @@ namespace KHInsider
 			return DecodeHtmlEntities(UTF8ToWStr(match[1].str().c_str()));
 		}
 
+		KHLog(L"no audio URL found on %s", trackPageUrl.GetString());
 		return L"";
 	}
 } // namespace KHInsider

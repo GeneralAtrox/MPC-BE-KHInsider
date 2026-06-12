@@ -179,6 +179,7 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_WM_DESTROY()
 	ON_WM_CTLCOLOR()
+	ON_WM_DRAWITEM()
 	ON_LBN_SELCHANGE(IDC_KHRADIO_TYPE_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_YEAR_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_PLATFORM_LIST, OnSelChangeFilters)
@@ -225,8 +226,15 @@ BOOL CKHRadioDlg::OnInitDialog()
 		m_brushList.CreateSolidBrush(m_crListBk);
 
 		for (CListBox* pList : { &m_listType, &m_listYear, &m_listPlatform, &m_listHistory }) {
+			// drop the light 3D edge for a flat dark look
+			pList->ModifyStyleEx(WS_EX_CLIENTEDGE, 0);
+			pList->ModifyStyle(WS_BORDER, 0);
+			pList->SetWindowPos(nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 			InitializeCoolSB(pList->m_hWnd, ThemeRGB);
 		}
+
+		m_buttonRandom.SetButtonStyle(BS_OWNERDRAW);
+		m_buttonClear.SetButtonStyle(BS_OWNERDRAW);
 	}
 
 	SetStatus(L"Ready. Pick your filters and roll an album.");
@@ -253,6 +261,42 @@ HBRUSH CKHRadioDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 	}
 
 	return __super::OnCtlColor(pDC, pWnd, nCtlColor);
+}
+
+void CKHRadioDlg::OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct)
+{
+	if (m_bDarkTheme && (nIDCtl == IDC_KHRADIO_RANDOM_BUTTON || nIDCtl == IDC_KHRADIO_CLEAR_BUTTON)) {
+		CDC dc;
+		dc.Attach(lpDrawItemStruct->hDC);
+
+		CRect r(lpDrawItemStruct->rcItem);
+		const bool bPressed = !!(lpDrawItemStruct->itemState & ODS_SELECTED);
+		const bool bDisabled = !!(lpDrawItemStruct->itemState & ODS_DISABLED);
+
+		dc.FillSolidRect(r, bPressed ? ThemeRGB(30, 35, 40) : ThemeRGB(60, 65, 70));
+		dc.Draw3dRect(r, ThemeRGB(85, 90, 95), ThemeRGB(25, 30, 35));
+
+		CStringW text;
+		if (CWnd* pBtn = GetDlgItem(nIDCtl)) {
+			pBtn->GetWindowTextW(text);
+		}
+		dc.SetBkMode(TRANSPARENT);
+		dc.SetTextColor(bDisabled ? ThemeRGB(95, 100, 105) : m_crText);
+		CFont* pOldFont = dc.SelectObject(GetFont());
+		dc.DrawTextW(text, r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+		dc.SelectObject(pOldFont);
+
+		if (lpDrawItemStruct->itemState & ODS_FOCUS) {
+			CRect rf(r);
+			rf.DeflateRect(2, 2);
+			dc.DrawFocusRect(rf);
+		}
+
+		dc.Detach();
+		return;
+	}
+
+	__super::OnDrawItem(nIDCtl, lpDrawItemStruct);
 }
 
 void CKHRadioDlg::OnClearFilters()
