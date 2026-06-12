@@ -19,4 +19,4 @@ that replicates the site's [Random Album Advanced](https://downloads.khinsider.c
 
 Toggle the panel via **View → KH Radio**.
 
-<img width="1680" height="1002" alt="image" src="https://github.com/user-attachments/assets/f002b47e-6660-4aa0-8486-8f33ba3bb8a2" />
+<img width="1680" height="1002" alt="image" src="https://github.com/user-attachments/assets/1d926377-b7e7-45a7-86a5-f450e5f5ac9b" />
