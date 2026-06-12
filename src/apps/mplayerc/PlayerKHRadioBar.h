@@ -98,6 +98,7 @@ private:
 	static UINT FetchThreadProc(LPVOID pParam);
 
 	void StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppend = false);
+	void MaybePrefetchNext(); // keep KHRADIO_QUEUE_DEPTH albums queued ahead
 	void SetStatus(const CStringW& text);
 	void PopulateFilterLists();
 	void RestoreSelections();
@@ -130,7 +131,12 @@ private:
 		CStringW coverPath; // local cover image for this album, if downloaded
 	};
 	std::map<CStringW, TrackRef> m_audioUrlToTrack; // direct audio URL -> track info
-	CStringW m_coverAlbumUrl; // album whose cover is currently shown
+
+	// continuous radio: keep a couple of albums queued ahead so playback
+	// never runs dry while the next album is being fetched/analyzed.
+	bool m_bRadioActive = false;        // a radio session is running
+	CStringW m_currentPlayingAlbum;     // album of the track currently playing
+	int m_queuedAlbumCount = 0;         // albums in the playlist not yet finished
 
 	CKHRadioHistory m_history;
 };

@@ -126,11 +126,21 @@ static const KHOption s_khPlatforms[] = {
 #define KHRADIO_YEAR_MAX 2026
 #define KHRADIO_YEAR_MIN 1980
 
+// total albums to keep in the playlist (the one playing + ones queued ahead)
+#define KHRADIO_QUEUE_DEPTH 2
+
 // worker -> UI message payloads
 
 struct KHRadioTextMsg {
 	UINT gen;
 	CStringW text;
+};
+
+struct KHRadioDoneMsg {
+	UINT gen;
+	bool bAppend;
+	int resolved;   // number of tracks queued by this fetch
+	CStringW text;  // status to show (empty = success)
 };
 
 struct KHRadioAlbumMsg {
@@ -520,15 +530,30 @@ void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppen
 		}
 	}
 
+	if (!bAppend) {
+		// a replace fetch empties the playlist, so the queue restarts
+		m_queuedAlbumCount = 0;
+		m_currentPlayingAlbum.Empty();
+	}
+
 	m_bFetching = true;
 	m_bPlaylistStarted = false;
-	SetStatus(bAppend ? L"Looking for the next album..." : (bDirect ? L"Loading album..." : L"Rolling a random album..."));
+	SetStatus(bAppend ? L"Queuing the next album..." : (bDirect ? L"Loading album..." : L"Rolling a random album..."));
 
 	if (AfxBeginThread(FetchThreadProc, p.get())) {
 		p.release(); // owned by the thread now
 	} else {
 		m_bFetching = false;
 		SetStatus(L"Could not start the fetch thread.");
+	}
+}
+
+void CKHRadioDlg::MaybePrefetchNext()
+{
+	// keep KHRADIO_QUEUE_DEPTH albums in the playlist so the next one is ready
+	// well before the current album ends. Only one fetch runs at a time.
+	if (m_bRadioActive && !m_bFetching && m_queuedAlbumCount < KHRADIO_QUEUE_DEPTH) {
+		StartFetch(false, L"", true);
 	}
 }
 
@@ -655,10 +680,12 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 		return 0;
 	}
 
-	if (!fetchOk) {
-		postText(WM_KHRADIO_DONE, L"Could not fetch an album. Check your connection and filters.");
-	} else {
-		postText(WM_KHRADIO_DONE, resolved ? L"" : L"No playable tracks found - try different filters.");
+	const CStringW doneText = !fetchOk
+		? CStringW(L"Could not fetch an album. Check your connection and filters.")
+		: (resolved ? CStringW() : CStringW(L"No playable tracks found - try different filters."));
+	auto* dm = new KHRadioDoneMsg{ p->gen, p->bAppend, resolved, doneText };
+	if (!::PostMessageW(p->hWnd, WM_KHRADIO_DONE, 0, reinterpret_cast<LPARAM>(dm))) {
+		delete dm;
 	}
 
 	return 0;
@@ -746,17 +773,31 @@ LRESULT CKHRadioDlg::OnKHRadioTrack(WPARAM wParam, LPARAM lParam)
 
 LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 {
-	std::unique_ptr<KHRadioTextMsg> m(reinterpret_cast<KHRadioTextMsg*>(lParam));
+	std::unique_ptr<KHRadioDoneMsg> m(reinterpret_cast<KHRadioDoneMsg*>(lParam));
 	if (!m || m->gen != (*m_pGen)) {
 		return 0;
 	}
 
 	m_bFetching = false;
+
+	if (m->resolved > 0) {
+		if (m->bAppend) {
+			// another album was appended to the queue
+			m_queuedAlbumCount++;
+		} else {
+			// a replace fetch: this album is now the (only) one queued
+			m_bRadioActive = true;
+			m_queuedAlbumCount = 1;
+		}
+		// top the queue up if we're still short
+		MaybePrefetchNext();
+	}
+
 	if (!m->text.IsEmpty()) {
 		SetStatus(m->text);
 	} else if (!m_currentAlbum.title.IsEmpty()) {
 		CStringW status;
-		status.Format(L"Playing: %s (%u tracks queued)", m_currentAlbum.title.GetString(), static_cast<unsigned>(m_audioUrlToTrack.size()));
+		status.Format(m->bAppend ? L"Queued next: %s" : L"Playing: %s", m_currentAlbum.title.GetString());
 		SetStatus(status);
 	}
 
@@ -780,18 +821,23 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 
 	auto pFrame = AfxGetMainFrame();
 
-	// show this album's cover in place of the audio logo (once per album).
-	// The frame keeps the file and loads it from SetAudioPicture(), so we
-	// must not delete it here.
-	if (pFrame && track.albumUrl != m_coverAlbumUrl && !track.coverPath.IsEmpty()) {
-		pFrame->SetRadioAlbumCover(track.coverPath);
-		m_coverAlbumUrl = track.albumUrl;
-	}
+	if (track.albumUrl != m_currentPlayingAlbum) {
+		// a new album just started playing
+		const bool bFirstAlbum = m_currentPlayingAlbum.IsEmpty();
+		m_currentPlayingAlbum = track.albumUrl;
 
-	// continuous radio: when the last queued track starts, roll the next
-	// album in the background and append it to the playlist
-	if (pFrame && !m_bFetching && pFrame->m_wndPlaylistBar.IsAtEnd()) {
-		StartFetch(false, L"", true);
+		// show this album's cover in place of the audio logo. The frame keeps
+		// the file and loads it from SetAudioPicture(), so we don't delete it.
+		if (pFrame && !track.coverPath.IsEmpty()) {
+			pFrame->SetRadioAlbumCover(track.coverPath);
+		}
+
+		// continuous radio: a queued album has now started, so one fewer is
+		// waiting ahead - prefetch another to keep the queue full.
+		if (!bFirstAlbum && m_queuedAlbumCount > 0) {
+			m_queuedAlbumCount--;
+		}
+		MaybePrefetchNext();
 	}
 }
 
