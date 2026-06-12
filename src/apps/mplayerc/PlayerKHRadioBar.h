@@ -85,6 +85,7 @@ private:
 		UINT gen = 0;
 		std::shared_ptr<std::atomic<UINT>> pGen; // shared with the dialog; mismatch = cancelled
 		bool bDirect = false;              // true: fetch m_albumUrl, false: POST random form
+		bool bAppend = false;              // continuous radio: append to the playlist instead of replacing it
 		CStringA formBody;
 		CStringW albumUrl;
 		bool bAvoidPlayed = false;
@@ -93,7 +94,7 @@ private:
 
 	static UINT FetchThreadProc(LPVOID pParam);
 
-	void StartFetch(bool bDirect, const CStringW& albumUrl);
+	void StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppend = false);
 	void SetStatus(const CStringW& text);
 	void PopulateFilterLists();
 	void RestoreSelections();
@@ -116,7 +117,17 @@ private:
 
 	KHInsider::Album m_currentAlbum;
 	bool m_bPlaylistStarted = false;
-	std::map<CStringW, CStringW> m_audioUrlToTrack; // direct audio URL -> track name
+
+	// with continuous radio several albums share the playlist, so each
+	// queued track remembers which album it belongs to
+	struct TrackRef {
+		CStringW name;
+		CStringW albumUrl;
+		CStringW albumTitle;
+		CStringW coverPath; // local cover image for this album, if downloaded
+	};
+	std::map<CStringW, TrackRef> m_audioUrlToTrack; // direct audio URL -> track info
+	CStringW m_coverAlbumUrl; // album whose cover is currently shown
 
 	CKHRadioHistory m_history;
 };

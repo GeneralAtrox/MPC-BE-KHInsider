@@ -676,6 +676,8 @@ private:
 public:
 	// KH Radio edition: all user-initiated media opens are blocked
 	bool DenyLocalPlayback();
+	// KH Radio: show the current album cover in place of the audio logo
+	bool SetRadioAlbumCover(const CStringW& path) { return m_wndView.SetRadioCover(path); }
 
 	BOOL OpenCurPlaylistItem(REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);
 	BOOL OpenFile(const CString fname, REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);

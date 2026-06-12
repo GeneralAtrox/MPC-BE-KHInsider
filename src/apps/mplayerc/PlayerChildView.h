@@ -60,6 +60,10 @@ public:
 
 	void ClearResizedImage();
 
+	// KH Radio: show the current album cover in place of the audio logo
+	bool SetRadioCover(const CStringW& path);
+	void RestoreLogo();
+
 protected:
 	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
@@ -77,4 +81,5 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 	bool m_bTrackingMouseLeave = false;
+	bool m_bRadioCover = false;
 };

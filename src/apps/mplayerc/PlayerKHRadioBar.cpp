@@ -27,7 +27,10 @@
 // declared here instead of including coolscroll.h, which defines a global
 // variable and may only be included from one translation unit
 typedef COLORREF (*ptr_themeRGB)(const int, const int, const int);
-extern "C" BOOL WINAPI InitializeCoolSB(HWND hwnd, ptr_themeRGB ThemeRGB);
+extern "C" {
+	BOOL WINAPI InitializeCoolSB(HWND hwnd, ptr_themeRGB ThemeRGB);
+	BOOL WINAPI CoolSB_SetSize(HWND hwnd, int wBar, int nLength, int nWidth);
+}
 
 // option tables mirroring https://downloads.khinsider.com/random-album-advanced
 
@@ -130,14 +133,17 @@ struct KHRadioTextMsg {
 
 struct KHRadioAlbumMsg {
 	UINT gen;
+	bool bAppend;
 	KHInsider::Album album;
 };
 
 struct KHRadioTrackMsg {
 	UINT gen;
+	bool bAppend;
 	int index;
 	CStringW name;
 	CStringW audioUrl;
+	CStringW coverPath;
 };
 
 // CKHRadioDlg
@@ -225,12 +231,18 @@ BOOL CKHRadioDlg::OnInitDialog()
 		m_brushWindow.CreateSolidBrush(ThemeRGB(45, 50, 55));
 		m_brushList.CreateSolidBrush(m_crListBk);
 
+		auto pFrame = AfxGetMainFrame();
 		for (CListBox* pList : { &m_listType, &m_listYear, &m_listPlatform, &m_listHistory }) {
 			// drop the light 3D edge for a flat dark look
 			pList->ModifyStyleEx(WS_EX_CLIENTEDGE, 0);
 			pList->ModifyStyle(WS_BORDER, 0);
 			pList->SetWindowPos(nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 			InitializeCoolSB(pList->m_hWnd, ThemeRGB);
+			// without an explicit size the up/down arrow buttons keep the light
+			// Windows look on Win8+
+			if (pFrame && SysVersion::IsWin8orLater()) {
+				CoolSB_SetSize(pList->m_hWnd, SB_VERT, pFrame->GetSystemMetricsDPI(SM_CYVSCROLL), pFrame->GetSystemMetricsDPI(SM_CXVSCROLL));
+			}
 		}
 
 		m_buttonRandom.SetButtonStyle(BS_OWNERDRAW);
@@ -458,13 +470,14 @@ void CKHRadioDlg::OnHistoryDblClk()
 	StartFetch(true, m_history.Albums()[sel].url);
 }
 
-void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl)
+void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppend)
 {
 	auto p = std::make_unique<FetchParams>();
 	p->hWnd = m_hWnd;
 	p->gen = ++(*m_pGen);
 	p->pGen = m_pGen;
 	p->bDirect = bDirect;
+	p->bAppend = bAppend;
 	p->albumUrl = albumUrl;
 	p->bAvoidPlayed = (m_checkAvoidPlayed.GetCheck() == BST_CHECKED);
 
@@ -482,7 +495,7 @@ void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl)
 
 	m_bFetching = true;
 	m_bPlaylistStarted = false;
-	SetStatus(bDirect ? L"Loading album..." : L"Rolling a random album...");
+	SetStatus(bAppend ? L"Looking for the next album..." : (bDirect ? L"Loading album..." : L"Rolling a random album..."));
 
 	if (AfxBeginThread(FetchThreadProc, p.get())) {
 		p.release(); // owned by the thread now
@@ -549,10 +562,23 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 	}
 
 	{
-		auto* m = new KHRadioAlbumMsg{ p->gen, album };
+		auto* m = new KHRadioAlbumMsg{ p->gen, p->bAppend, album };
 		if (!::PostMessageW(p->hWnd, WM_KHRADIO_ALBUM, 0, reinterpret_cast<LPARAM>(m))) {
 			delete m;
 			return 0;
+		}
+	}
+
+	// download the album cover so it can replace the audio logo on playback
+	CStringW coverPath;
+	if (!album.coverUrl.IsEmpty()) {
+		CStringW dir;
+		if (AfxGetMyApp()->GetAppSavePath(dir)) {
+			CStringW candidate;
+			candidate.Format(L"%skhradio_cover_%u.img", dir.GetString(), p->gen);
+			if (KHInsider::DownloadToFile(album.coverUrl, candidate)) {
+				coverPath = candidate;
+			}
 		}
 	}
 
@@ -563,7 +589,7 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 			continue;
 		}
 
-		auto* m = new KHRadioTrackMsg{ p->gen, static_cast<int>(i), album.tracks[i].name, audioUrl };
+		auto* m = new KHRadioTrackMsg{ p->gen, p->bAppend, static_cast<int>(i), album.tracks[i].name, audioUrl, coverPath };
 		if (!::PostMessageW(p->hWnd, WM_KHRADIO_TRACK, 0, reinterpret_cast<LPARAM>(m))) {
 			delete m;
 			return 0;
@@ -595,11 +621,15 @@ LRESULT CKHRadioDlg::OnKHRadioAlbum(WPARAM wParam, LPARAM lParam)
 	}
 
 	m_currentAlbum = m->album;
-	m_audioUrlToTrack.clear();
+	if (!m->bAppend) {
+		// fresh session: earlier albums leave the playlist, so forget their tracks
+		m_audioUrlToTrack.clear();
+	}
 	m_bPlaylistStarted = false;
 
 	CStringW status;
-	status.Format(L"Found: %s (%u tracks) - starting...", m_currentAlbum.title.GetString(), static_cast<unsigned>(m_currentAlbum.tracks.size()));
+	status.Format(m->bAppend ? L"Up next: %s (%u tracks)" : L"Found: %s (%u tracks) - starting...",
+				  m_currentAlbum.title.GetString(), static_cast<unsigned>(m_currentAlbum.tracks.size()));
 	SetStatus(status);
 
 	return 0;
@@ -612,7 +642,7 @@ LRESULT CKHRadioDlg::OnKHRadioTrack(WPARAM wParam, LPARAM lParam)
 		return 0;
 	}
 
-	m_audioUrlToTrack[m->audioUrl] = m->name;
+	m_audioUrlToTrack[m->audioUrl] = { m->name, m_currentAlbum.url, m_currentAlbum.title, m->coverPath };
 
 	CStringW label;
 	label.Format(L"%02d. %s", m->index + 1, m->name.GetString());
@@ -626,14 +656,27 @@ LRESULT CKHRadioDlg::OnKHRadioTrack(WPARAM wParam, LPARAM lParam)
 	}
 
 	if (!m_bPlaylistStarted) {
-		pFrame->m_wndPlaylistBar.Empty();
-		pFrame->m_wndPlaylistBar.Append(fis);
-		pFrame->OpenCurPlaylistItem();
-		m_bPlaylistStarted = true;
+		if (m->bAppend) {
+			pFrame->m_wndPlaylistBar.Append(fis);
 
-		CStringW status;
-		status.Format(L"Playing: %s", m_currentAlbum.title.GetString());
-		SetStatus(status);
+			// if playback already ran past the end of the playlist while we
+			// were fetching, jump-start it on the new album
+			const OAFilterState fs = pFrame->GetMediaState();
+			if (fs != State_Running && fs != State_Paused) {
+				if (pFrame->m_wndPlaylistBar.SelectFileInPlaylist(m->audioUrl)) {
+					pFrame->OpenCurPlaylistItem();
+				}
+			}
+		} else {
+			pFrame->m_wndPlaylistBar.Empty();
+			pFrame->m_wndPlaylistBar.Append(fis);
+			pFrame->OpenCurPlaylistItem();
+
+			CStringW status;
+			status.Format(L"Playing: %s", m_currentAlbum.title.GetString());
+			SetStatus(status);
+		}
+		m_bPlaylistStarted = true;
 	} else {
 		pFrame->m_wndPlaylistBar.Append(fis);
 	}
@@ -667,8 +710,29 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 		return;
 	}
 
-	m_history.RecordTrack(m_currentAlbum.url, m_currentAlbum.title, it->second);
+	const TrackRef track = it->second;
+	m_history.RecordTrack(track.albumUrl, track.albumTitle, track.name);
 	RefreshHistoryList();
+
+	CStringW status;
+	status.Format(L"Now playing: %s - %s", track.albumTitle.GetString(), track.name.GetString());
+	SetStatus(status);
+
+	auto pFrame = AfxGetMainFrame();
+
+	// show this album's cover in place of the audio logo (once per album)
+	if (pFrame && track.albumUrl != m_coverAlbumUrl && !track.coverPath.IsEmpty()) {
+		if (pFrame->SetRadioAlbumCover(track.coverPath)) {
+			m_coverAlbumUrl = track.albumUrl;
+		}
+		::DeleteFileW(track.coverPath); // loaded into memory, no longer needed
+	}
+
+	// continuous radio: when the last queued track starts, roll the next
+	// album in the background and append it to the playlist
+	if (pFrame && !m_bFetching && pFrame->m_wndPlaylistBar.IsAtEnd()) {
+		StartFetch(false, L"", true);
+	}
 }
 
 // CKHRadioBar

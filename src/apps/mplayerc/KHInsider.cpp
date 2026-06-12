@@ -323,7 +323,19 @@ namespace KHInsider
 			}
 		}
 
-		KHLog(L"parsed album: '%s', %u tracks", album.title.GetString(), static_cast<unsigned>(album.tracks.size()));
+		// album cover: the full-size image linked inside <div class="albumImage">
+		const size_t imgPos = html.find("class=\"albumImage\"");
+		if (imgPos != std::string::npos) {
+			const std::string imgBlock = html.substr(imgPos, 600);
+			static const std::regex reCover("href=\"(https?://[^\"]+\\.(jpg|jpeg|png|gif|webp))\"", std::regex::icase);
+			std::smatch m;
+			if (std::regex_search(imgBlock, m, reCover)) {
+				album.coverUrl = DecodeHtmlEntities(UTF8ToWStr(m[1].str().c_str()));
+			}
+		}
+
+		KHLog(L"parsed album: '%s', %u tracks, cover %s", album.title.GetString(), static_cast<unsigned>(album.tracks.size()),
+			  album.coverUrl.IsEmpty() ? L"(none)" : album.coverUrl.GetString());
 
 		return !album.tracks.empty();
 	}
@@ -393,6 +405,23 @@ namespace KHInsider
 
 		KHLog(L"no audio URL found on %s", trackPageUrl.GetString());
 		return L"";
+	}
+
+	bool DownloadToFile(const CStringW& url, const CStringW& localPath)
+	{
+		urlData data;
+		if (!URLRequest(L"GET", url, CStringA(), data) || data.size() < 2) {
+			return false;
+		}
+
+		CFile f;
+		if (!f.Open(localPath, CFile::modeCreate | CFile::modeWrite | CFile::shareExclusive)) {
+			return false;
+		}
+		// URLRequest appends a trailing '\0' for string callers; drop it here
+		f.Write(data.data(), static_cast<UINT>(data.size() - 1));
+		f.Close();
+		return true;
 	}
 } // namespace KHInsider
 

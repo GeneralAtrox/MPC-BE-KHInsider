@@ -218,6 +218,35 @@ void CChildView::ClearResizedImage()
 	m_pBitmapResized.Release();
 }
 
+bool CChildView::SetRadioCover(const CStringW& path)
+{
+	CAutoLock cAutoLock(&m_csLogo);
+
+	CComPtr<IWICBitmap> pNew;
+	if (FAILED(WicLoadImage(&pNew, true, path.GetString()))) {
+		return false;
+	}
+
+	m_pBitmap = pNew;
+	m_pBitmapResized.Release();
+	m_logoRect.SetRectEmpty();
+	m_bRadioCover = true;
+
+	if (m_hWnd) {
+		Invalidate();
+	}
+
+	return true;
+}
+
+void CChildView::RestoreLogo()
+{
+	if (m_bRadioCover) {
+		m_bRadioCover = false;
+		LoadLogo();
+	}
+}
+
 IMPLEMENT_DYNAMIC(CChildView, CWnd)
 
 BEGIN_MESSAGE_MAP(CChildView, CWnd)

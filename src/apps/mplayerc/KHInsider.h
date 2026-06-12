@@ -33,6 +33,7 @@ namespace KHInsider
 	struct Album {
 		CStringW url;     // album page URL
 		CStringW title;
+		CStringW coverUrl; // album cover image, if any
 		std::vector<Track> tracks;
 	};
 
@@ -49,6 +50,9 @@ namespace KHInsider
 	// GET a track page and extract the direct audio URL (mp3 preferred).
 	// Returns an empty string on failure.
 	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl);
+
+	// Download a binary resource (e.g. cover image) to a local file.
+	bool DownloadToFile(const CStringW& url, const CStringW& localPath);
 
 	CStringW DecodeHtmlEntities(CStringW str);
 }
