@@ -54,6 +54,7 @@ public:
 	CListBox m_listPlatform;
 	CButton  m_buttonClear;
 	CButton  m_checkAvoidPlayed;
+	CButton  m_checkFilterSpoken;
 	CButton  m_buttonRandom;
 	CStatic  m_staticStatus;
 	CListBox m_listHistory;
@@ -72,6 +73,7 @@ protected:
 	afx_msg void OnSelChangeFilters();
 	afx_msg void OnClearFilters();
 	afx_msg void OnAvoidPlayedClicked();
+	afx_msg void OnFilterSpokenClicked();
 	afx_msg void OnRandomAlbum();
 	afx_msg void OnHistoryDblClk();
 	afx_msg LRESULT OnKHRadioStatus(WPARAM wParam, LPARAM lParam);
@@ -89,6 +91,7 @@ private:
 		CStringA formBody;
 		CStringW albumUrl;
 		bool bAvoidPlayed = false;
+		bool bFilterSpoken = false;
 		std::vector<CStringW> playedAlbums; // snapshot of history URLs
 	};
 

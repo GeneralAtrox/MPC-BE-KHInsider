@@ -454,6 +454,7 @@ void CAppSettings::ResetSettings()
 
 	bShowKHRadioBar = true;
 	bKHRadioAvoidPlayed = true;
+	bKHRadioFilterSpoken = false;
 	strKHRadioTypes.Empty();
 	strKHRadioYears.Empty();
 	strKHRadioPlatforms.Empty();
@@ -862,6 +863,7 @@ void CAppSettings::LoadSettings(bool bForce/* = false*/)
 
 	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_SHOWBAR, bShowKHRadioBar);
 	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_AVOIDPLAYED, bKHRadioAvoidPlayed);
+	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_FILTERSPOKEN, bKHRadioFilterSpoken);
 	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_TYPES, strKHRadioTypes);
 	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_YEARS, strKHRadioYears);
 	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_PLATFORMS, strKHRadioPlatforms);
@@ -1595,6 +1597,7 @@ void CAppSettings::SaveSettings()
 
 	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_SHOWBAR, bShowKHRadioBar);
 	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_AVOIDPLAYED, bKHRadioAvoidPlayed);
+	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_FILTERSPOKEN, bKHRadioFilterSpoken);
 	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_TYPES, strKHRadioTypes);
 	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_YEARS, strKHRadioYears);
 	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_PLATFORMS, strKHRadioPlatforms);

@@ -29,10 +29,15 @@
 #include <map>
 #include <regex>
 #include <string>
+#include <cmath>
 
 #include "rapidjsonHelper.h"
 #include "ExtLib/rapidjson/include/rapidjson/writer.h"
 #include "ExtLib/rapidjson/include/rapidjson/stringbuffer.h"
+
+#define MINIMP3_IMPLEMENTATION
+#define MINIMP3_NO_STDIO
+#include "ExtLib/minimp3/minimp3.h"
 
 #define KHINSIDER_HOST L"downloads.khinsider.com"
 #define KHINSIDER_BASE L"https://downloads.khinsider.com"
@@ -86,7 +91,8 @@ namespace KHInsider
 	// browser user-agents speaking HTTP/2, which WinHTTP supports (WinInet's
 	// HTTP/2 option does not take effect and gets a 403). Redirects are
 	// followed; 'pFinalUrl' (optional) receives the URL we actually ended up on.
-	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr)
+	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
+						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0)
 	{
 		pData.clear();
 		if (pFinalUrl) {
@@ -123,6 +129,9 @@ namespace KHInsider
 					if (!body.IsEmpty()) {
 						headers += L"Content-Type: application/x-www-form-urlencoded\r\n";
 					}
+					if (extraHeaders) {
+						headers += extraHeaders;
+					}
 
 					CStringA requestData(body);
 					if (WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1),
@@ -141,6 +150,9 @@ namespace KHInsider
 								break;
 							}
 							pData.insert(pData.end(), tmp.begin(), tmp.begin() + dwSizeRead);
+							if (maxBytes && pData.size() >= maxBytes) {
+								break;
+							}
 						}
 
 						if (!pData.empty()) {
@@ -422,6 +434,148 @@ namespace KHInsider
 		f.Write(data.data(), static_cast<UINT>(data.size() - 1));
 		f.Close();
 		return true;
+	}
+
+	// Speech-vs-music classification. First a cheap title check, then a
+	// content analysis of a downloaded prefix: speech has a characteristic
+	// ~4 Hz syllabic energy modulation, more pauses, and a higher variance in
+	// zero-crossing rate than music. Conservative thresholds favour keeping
+	// music; every decision is logged so the cut-offs can be tuned.
+	bool IsLikelySpokenTrack(const CStringW& audioUrl, const CStringW& trackName)
+	{
+		constexpr double kPi = 3.14159265358979323846;
+
+		CStringW lower = trackName;
+		lower.MakeLower();
+		static const LPCWSTR spokenWords[] = {
+			L"dialogue", L"dialog", L"voice", L"narration", L"narrator", L"monologue",
+			L"interview", L"commentary", L"drama cd", L"audio drama", L"radio drama",
+			L"skit", L"cutscene", L"cut scene", L"voice clip", L"voices",
+			L"\u30DC\u30A4\u30B9",                 // voice (boisu)
+			L"\u30BB\u30EA\u30D5",                 // serifu (spoken lines)
+			L"\u30C9\u30E9\u30DE",                 // drama
+			L"\u30CA\u30EC\u30FC\u30B7\u30E7\u30F3", // narration
+			L"\u4F1A\u8A71",                       // kaiwa (conversation)
+		};
+		for (const auto w : spokenWords) {
+			if (lower.Find(w) != -1) {
+				KHLog(L"speech check '%s': title match -> SPOKEN", trackName.GetString());
+				return true;
+			}
+		}
+
+		// download a short prefix (~256 KB, enough for ~10-15s)
+		urlData mp3;
+		if (!URLRequest(L"GET", audioUrl, CStringA(), mp3, nullptr, L"Range: bytes=0-262143\r\n", 262144) || mp3.size() < 8192) {
+			return false; // can't analyse -> keep the track
+		}
+
+		// decode to mono float PCM
+		mp3dec_t dec;
+		mp3dec_init(&dec);
+		mp3dec_frame_info_t info = {};
+		std::vector<float> mono;
+		const uint8_t* buf = reinterpret_cast<const uint8_t*>(mp3.data());
+		int bytesLeft = static_cast<int>(mp3.size()) - 1; // drop appended '\0'
+		int hz = 0;
+		short pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+		const size_t maxSamples = 30u * 48000u;
+		while (bytesLeft > 0 && mono.size() < maxSamples) {
+			const int samples = mp3dec_decode_frame(&dec, buf, bytesLeft, pcm, &info);
+			if (info.frame_bytes <= 0) {
+				break;
+			}
+			buf += info.frame_bytes;
+			bytesLeft -= info.frame_bytes;
+			if (samples > 0) {
+				hz = info.hz;
+				if (info.channels >= 2) {
+					for (int i = 0; i < samples; i++) {
+						mono.push_back((pcm[2 * i] + pcm[2 * i + 1]) * (0.5f / 32768.0f));
+					}
+				} else {
+					for (int i = 0; i < samples; i++) {
+						mono.push_back(pcm[i] / 32768.0f);
+					}
+				}
+			}
+		}
+
+		if (hz <= 0 || mono.size() < static_cast<size_t>(hz)) {
+			return false; // need at least ~1s of audio
+		}
+
+		// 20 ms frames -> energy envelope (50 fps) and zero-crossing rate
+		const int frameLen = hz / 50;
+		const int nFrames = static_cast<int>(mono.size() / frameLen);
+		if (frameLen < 1 || nFrames < 25) {
+			return false;
+		}
+
+		std::vector<float> energy(nFrames), zcr(nFrames);
+		for (int f = 0; f < nFrames; f++) {
+			const float* x = &mono[static_cast<size_t>(f) * frameLen];
+			double e = 0.0;
+			int zc = 0;
+			for (int i = 0; i < frameLen; i++) {
+				e += static_cast<double>(x[i]) * x[i];
+				if (i > 0 && ((x[i] >= 0.0f) != (x[i - 1] >= 0.0f))) {
+					zc++;
+				}
+			}
+			energy[f] = static_cast<float>(std::sqrt(e / frameLen));
+			zcr[f] = static_cast<float>(zc) / frameLen;
+		}
+
+		double meanE = 0.0;
+		for (const float e : energy) meanE += e;
+		meanE /= nFrames;
+		if (meanE < 1e-4) {
+			return false; // essentially silent
+		}
+
+		int pauses = 0;
+		for (const float e : energy) if (e < 0.25 * meanE) pauses++;
+		const double pauseRatio = static_cast<double>(pauses) / nFrames;
+
+		double meanZ = 0.0;
+		for (const float z : zcr) meanZ += z;
+		meanZ /= nFrames;
+		double varZ = 0.0;
+		for (const float z : zcr) varZ += (z - meanZ) * (z - meanZ);
+		varZ /= nFrames;
+		const double zcrCoV = meanZ > 1e-6 ? std::sqrt(varZ) / meanZ : 0.0;
+
+		// 4 Hz modulation: power of the energy envelope in the 3-6 Hz speech
+		// band relative to the whole 1-15 Hz range (envelope sampled at 50 Hz)
+		const double envFs = 50.0;
+		std::vector<double> env(nFrames);
+		for (int f = 0; f < nFrames; f++) env[f] = energy[f] - meanE;
+		const auto bandPower = [&](double f0, double f1) -> double {
+			double total = 0.0;
+			for (double fr = f0; fr <= f1 + 1e-9; fr += 0.5) {
+				double re = 0.0, im = 0.0;
+				for (int n = 0; n < nFrames; n++) {
+					const double ph = 2.0 * kPi * fr * n / envFs;
+					re += env[n] * std::cos(ph);
+					im -= env[n] * std::sin(ph);
+				}
+				total += re * re + im * im;
+			}
+			return total;
+		};
+		const double modRatio = bandPower(3.0, 6.0) / (bandPower(1.0, 15.0) + 1e-9);
+
+		int score = 0;
+		if (modRatio > 0.32) score += 2;  // strong syllabic rhythm
+		if (pauseRatio > 0.18) score += 1; // gaps between phrases
+		if (zcrCoV > 0.65) score += 1;     // voiced/unvoiced alternation
+		const bool spoken = score >= 3;
+
+		KHLog(L"speech check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f score=%d -> %s",
+			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, score, spoken ? L"SPOKEN" : L"music");
+
+		return spoken;
 	}
 } // namespace KHInsider
 

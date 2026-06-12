@@ -54,6 +54,10 @@ namespace KHInsider
 	// Download a binary resource (e.g. cover image) to a local file.
 	bool DownloadToFile(const CStringW& url, const CStringW& localPath);
 
+	// Heuristic speech/music classifier: true if the track looks like spoken
+	// content (dialogue, drama, narration) rather than music.
+	bool IsLikelySpokenTrack(const CStringW& audioUrl, const CStringW& trackName);
+
 	CStringW DecodeHtmlEntities(CStringW str);
 }
 

@@ -254,6 +254,7 @@
 #define IDS_RS_HIDENAVIGATION				L"HideNavigation"
 #define IDS_RS_KHRADIO_SHOWBAR				L"KHRadioShowBar"
 #define IDS_RS_KHRADIO_AVOIDPLAYED			L"KHRadioAvoidPlayed"
+#define IDS_RS_KHRADIO_FILTERSPOKEN			L"KHRadioFilterSpoken"
 #define IDS_RS_KHRADIO_TYPES				L"KHRadioTypes"
 #define IDS_RS_KHRADIO_YEARS				L"KHRadioYears"
 #define IDS_RS_KHRADIO_PLATFORMS			L"KHRadioPlatforms"

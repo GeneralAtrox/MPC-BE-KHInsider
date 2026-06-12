@@ -177,6 +177,7 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_KHRADIO_PLATFORM_LIST, m_listPlatform);
 	DDX_Control(pDX, IDC_KHRADIO_CLEAR_BUTTON, m_buttonClear);
 	DDX_Control(pDX, IDC_KHRADIO_AVOID_CHECK, m_checkAvoidPlayed);
+	DDX_Control(pDX, IDC_KHRADIO_SPOKEN_CHECK, m_checkFilterSpoken);
 	DDX_Control(pDX, IDC_KHRADIO_RANDOM_BUTTON, m_buttonRandom);
 	DDX_Control(pDX, IDC_KHRADIO_STATUS, m_staticStatus);
 	DDX_Control(pDX, IDC_KHRADIO_HISTORY_LIST, m_listHistory);
@@ -191,6 +192,7 @@ BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_PLATFORM_LIST, OnSelChangeFilters)
 	ON_BN_CLICKED(IDC_KHRADIO_CLEAR_BUTTON, OnClearFilters)
 	ON_BN_CLICKED(IDC_KHRADIO_AVOID_CHECK, OnAvoidPlayedClicked)
+	ON_BN_CLICKED(IDC_KHRADIO_SPOKEN_CHECK, OnFilterSpokenClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_RANDOM_BUTTON, OnRandomAlbum)
 	ON_LBN_DBLCLK(IDC_KHRADIO_HISTORY_LIST, OnHistoryDblClk)
 	ON_MESSAGE(WM_KHRADIO_STATUS, OnKHRadioStatus)
@@ -217,6 +219,7 @@ BOOL CKHRadioDlg::OnInitDialog()
 	AddAnchor(IDC_KHRADIO_PLATFORM_LIST, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_CLEAR_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_AVOID_CHECK, TOP_LEFT, TOP_RIGHT);
+	AddAnchor(IDC_KHRADIO_SPOKEN_CHECK, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_RANDOM_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_STATUS, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_HISTORY_LABEL, TOP_LEFT, TOP_RIGHT);
@@ -408,6 +411,7 @@ void CKHRadioDlg::RestoreSelections()
 	ApplySelection(m_listYear, s.strKHRadioYears);
 	ApplySelection(m_listPlatform, s.strKHRadioPlatforms);
 	m_checkAvoidPlayed.SetCheck(s.bKHRadioAvoidPlayed ? BST_CHECKED : BST_UNCHECKED);
+	m_checkFilterSpoken.SetCheck(s.bKHRadioFilterSpoken ? BST_CHECKED : BST_UNCHECKED);
 }
 
 void CKHRadioDlg::SaveSelections()
@@ -418,6 +422,7 @@ void CKHRadioDlg::SaveSelections()
 	s.strKHRadioYears = JoinSelection(m_listYear);
 	s.strKHRadioPlatforms = JoinSelection(m_listPlatform);
 	s.bKHRadioAvoidPlayed = (m_checkAvoidPlayed.GetCheck() == BST_CHECKED);
+	s.bKHRadioFilterSpoken = (m_checkFilterSpoken.GetCheck() == BST_CHECKED);
 }
 
 void CKHRadioDlg::OnSelChangeFilters()
@@ -426,6 +431,11 @@ void CKHRadioDlg::OnSelChangeFilters()
 }
 
 void CKHRadioDlg::OnAvoidPlayedClicked()
+{
+	SaveSelections();
+}
+
+void CKHRadioDlg::OnFilterSpokenClicked()
 {
 	SaveSelections();
 }
@@ -480,6 +490,7 @@ void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppen
 	p->bAppend = bAppend;
 	p->albumUrl = albumUrl;
 	p->bAvoidPlayed = (m_checkAvoidPlayed.GetCheck() == BST_CHECKED);
+	p->bFilterSpoken = (m_checkFilterSpoken.GetCheck() == BST_CHECKED);
 
 	if (!bDirect) {
 		std::vector<int> types, years, platforms;
@@ -519,86 +530,119 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 		}
 	};
 
-	KHInsider::Album album;
-	bool ok = false;
+	constexpr int maxAttempts = 8;
+	const int attempts = p->bDirect ? 1 : maxAttempts;
 
-	if (p->bDirect) {
-		ok = KHInsider::FetchAlbum(p->albumUrl, album);
-	} else {
-		constexpr int maxAttempts = 8;
-		for (int attempt = 1; attempt <= maxAttempts && !cancelled(); attempt++) {
-			if (!KHInsider::FetchRandomAlbum(p->formBody, album)) {
-				ok = false;
-				break;
+	int resolved = 0;
+	bool fetchOk = false;
+
+	for (int attempt = 1; attempt <= attempts && !cancelled(); attempt++) {
+		KHInsider::Album album;
+		if (p->bDirect ? !KHInsider::FetchAlbum(p->albumUrl, album)
+					   : !KHInsider::FetchRandomAlbum(p->formBody, album)) {
+			break; // network/parse failure
+		}
+		fetchOk = true;
+
+		// skip already-heard albums (random mode only)
+		if (!p->bDirect && p->bAvoidPlayed && attempt < attempts) {
+			bool bPlayed = false;
+			for (const auto& url : p->playedAlbums) {
+				if (url.CompareNoCase(album.url) == 0) {
+					bPlayed = true;
+					break;
+				}
 			}
-			ok = true;
+			if (bPlayed) {
+				CStringW status;
+				status.Format(L"Already heard '%s' - rerolling...", album.title.GetString());
+				postText(WM_KHRADIO_STATUS, status);
+				continue;
+			}
+		}
 
-			if (p->bAvoidPlayed && attempt < maxAttempts) {
-				bool bPlayed = false;
-				for (const auto& url : p->playedAlbums) {
-					if (url.CompareNoCase(album.url) == 0) {
-						bPlayed = true;
-						break;
-					}
-				}
-				if (bPlayed) {
-					CStringW status;
-					status.Format(L"Already heard '%s' - rerolling...", album.title.GetString());
-					postText(WM_KHRADIO_STATUS, status);
-					continue;
-				}
+		if (album.tracks.empty()) {
+			if (!p->bDirect && attempt < attempts) {
+				continue;
 			}
 			break;
 		}
+
+		// download the album cover so it can replace the audio logo on playback
+		CStringW coverPath;
+		if (!album.coverUrl.IsEmpty()) {
+			CStringW dir;
+			if (AfxGetMyApp()->GetAppSavePath(dir)) {
+				CStringW candidate;
+				candidate.Format(L"%skhradio_cover_%u.img", dir.GetString(), p->gen);
+				if (KHInsider::DownloadToFile(album.coverUrl, candidate)) {
+					coverPath = candidate;
+				}
+			}
+		}
+
+		if (p->bFilterSpoken) {
+			CStringW status;
+			status.Format(L"Checking '%s' for spoken tracks...", album.title.GetString());
+			postText(WM_KHRADIO_STATUS, status);
+		}
+
+		// resolve tracks; the album message is posted lazily on the first
+		// playable track so a fully-spoken album can be rerolled cleanly
+		bool albumPosted = false;
+		for (size_t i = 0; i < album.tracks.size() && !cancelled(); i++) {
+			const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl);
+			if (audioUrl.IsEmpty()) {
+				continue;
+			}
+			if (p->bFilterSpoken && KHInsider::IsLikelySpokenTrack(audioUrl, album.tracks[i].name)) {
+				continue;
+			}
+
+			if (!albumPosted) {
+				auto* am = new KHRadioAlbumMsg{ p->gen, p->bAppend, album };
+				if (!::PostMessageW(p->hWnd, WM_KHRADIO_ALBUM, 0, reinterpret_cast<LPARAM>(am))) {
+					delete am;
+					return 0;
+				}
+				albumPosted = true;
+			}
+
+			auto* m = new KHRadioTrackMsg{ p->gen, p->bAppend, static_cast<int>(i), album.tracks[i].name, audioUrl, coverPath };
+			if (!::PostMessageW(p->hWnd, WM_KHRADIO_TRACK, 0, reinterpret_cast<LPARAM>(m))) {
+				delete m;
+				return 0;
+			}
+			resolved++;
+		}
+
+		if (cancelled()) {
+			return 0;
+		}
+
+		if (resolved > 0) {
+			break; // got a playable album
+		}
+
+		// nothing playable (all spoken or unresolved) - reroll if random
+		if (!coverPath.IsEmpty()) {
+			::DeleteFileW(coverPath);
+		}
+		if (!p->bDirect && attempt < attempts) {
+			postText(WM_KHRADIO_STATUS, L"Only spoken tracks here - rerolling...");
+			continue;
+		}
+		break;
 	}
 
 	if (cancelled()) {
 		return 0;
 	}
 
-	if (!ok || album.tracks.empty()) {
+	if (!fetchOk) {
 		postText(WM_KHRADIO_DONE, L"Could not fetch an album. Check your connection and filters.");
-		return 0;
-	}
-
-	{
-		auto* m = new KHRadioAlbumMsg{ p->gen, p->bAppend, album };
-		if (!::PostMessageW(p->hWnd, WM_KHRADIO_ALBUM, 0, reinterpret_cast<LPARAM>(m))) {
-			delete m;
-			return 0;
-		}
-	}
-
-	// download the album cover so it can replace the audio logo on playback
-	CStringW coverPath;
-	if (!album.coverUrl.IsEmpty()) {
-		CStringW dir;
-		if (AfxGetMyApp()->GetAppSavePath(dir)) {
-			CStringW candidate;
-			candidate.Format(L"%skhradio_cover_%u.img", dir.GetString(), p->gen);
-			if (KHInsider::DownloadToFile(album.coverUrl, candidate)) {
-				coverPath = candidate;
-			}
-		}
-	}
-
-	int resolved = 0;
-	for (size_t i = 0; i < album.tracks.size() && !cancelled(); i++) {
-		const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl);
-		if (audioUrl.IsEmpty()) {
-			continue;
-		}
-
-		auto* m = new KHRadioTrackMsg{ p->gen, p->bAppend, static_cast<int>(i), album.tracks[i].name, audioUrl, coverPath };
-		if (!::PostMessageW(p->hWnd, WM_KHRADIO_TRACK, 0, reinterpret_cast<LPARAM>(m))) {
-			delete m;
-			return 0;
-		}
-		resolved++;
-	}
-
-	if (!cancelled()) {
-		postText(WM_KHRADIO_DONE, resolved ? L"" : L"No playable tracks found in this album.");
+	} else {
+		postText(WM_KHRADIO_DONE, resolved ? L"" : L"No playable tracks found - try different filters.");
 	}
 
 	return 0;
