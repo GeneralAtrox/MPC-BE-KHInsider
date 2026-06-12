@@ -412,6 +412,18 @@ void CKHRadioDlg::RestoreSelections()
 	ApplySelection(m_listPlatform, s.strKHRadioPlatforms);
 	m_checkAvoidPlayed.SetCheck(s.bKHRadioAvoidPlayed ? BST_CHECKED : BST_UNCHECKED);
 	m_checkFilterSpoken.SetCheck(s.bKHRadioFilterSpoken ? BST_CHECKED : BST_UNCHECKED);
+
+	const auto selCount = [](CListBox& l) {
+		int n = 0;
+		for (int i = 0; i < l.GetCount(); i++) if (l.GetSel(i) > 0) n++;
+		return n;
+	};
+	CStringW log;
+	log.Format(L"restore: types='%s'(%d sel) years='%s'(%d sel) platforms='%s'(%d sel)",
+			   s.strKHRadioTypes.GetString(), selCount(m_listType),
+			   s.strKHRadioYears.GetString(), selCount(m_listYear),
+			   s.strKHRadioPlatforms.GetString(), selCount(m_listPlatform));
+	KHInsider::DebugLog(log);
 }
 
 void CKHRadioDlg::SaveSelections()

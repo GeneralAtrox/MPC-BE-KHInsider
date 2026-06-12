@@ -2135,10 +2135,10 @@ void CAppSettings::SaveExternalFilters()
 
 int CAppSettings::GetMultiInst()
 {
-	int multiinst = 1;
-	AfxGetProfile().ReadInt(IDS_R_SETTINGS, IDS_RS_MULTIINST, multiinst, 0, 2);
-
-	return multiinst;
+	// KH Radio edition: always run as a single instance. Multiple concurrent
+	// copies would each save settings on exit and the last one to close would
+	// overwrite the others, losing the user's filter selections.
+	return 0;
 }
 
 engine_t CAppSettings::GetFileEngine(CString path)

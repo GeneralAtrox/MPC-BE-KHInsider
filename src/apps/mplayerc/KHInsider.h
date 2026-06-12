@@ -59,6 +59,9 @@ namespace KHInsider
 	bool IsLikelySpokenTrack(const CStringW& audioUrl, const CStringW& trackName);
 
 	CStringW DecodeHtmlEntities(CStringW str);
+
+	// Append a line to %APPDATA%\MPC-BE\khradio_debug.log.
+	void DebugLog(const CStringW& msg);
 }
 
 // Persistent record of every album/track that has been listened to.

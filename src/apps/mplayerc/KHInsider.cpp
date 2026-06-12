@@ -52,6 +52,15 @@
 #ifndef WINHTTP_PROTOCOL_FLAG_HTTP2
 #define WINHTTP_PROTOCOL_FLAG_HTTP2 0x1
 #endif
+#ifndef WINHTTP_OPTION_DISABLE_FEATURE
+#define WINHTTP_OPTION_DISABLE_FEATURE 63
+#endif
+#ifndef WINHTTP_DISABLE_COOKIES
+#define WINHTTP_DISABLE_COOKIES 0x00000001
+#endif
+#ifndef WINHTTP_DISABLE_KEEP_ALIVE
+#define WINHTTP_DISABLE_KEEP_ALIVE 0x00000002
+#endif
 
 namespace KHInsider
 {
@@ -123,6 +132,12 @@ namespace KHInsider
 													   KHINSIDER_BASE L"/",
 													   WINHTTP_DEFAULT_ACCEPT_TYPES, dwFlags)) {
 
+					// Don't carry cookies or pooled connections between requests:
+					// over the app's lifetime the server otherwise pins the
+					// "random" album to the session and keeps returning the same one.
+					DWORD dwDisable = WINHTTP_DISABLE_COOKIES | WINHTTP_DISABLE_KEEP_ALIVE;
+					WinHttpSetOption(hRequest, WINHTTP_OPTION_DISABLE_FEATURE, &dwDisable, sizeof(dwDisable));
+
 					CStringW headers =
 						L"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
 						L"Accept-Language: en-US,en;q=0.9\r\n";
@@ -188,6 +203,11 @@ namespace KHInsider
 		}
 
 		return !pData.empty();
+	}
+
+	void DebugLog(const CStringW& msg)
+	{
+		KHLog(L"%s", msg.GetString());
 	}
 
 	CStringW DecodeHtmlEntities(CStringW str)
@@ -370,9 +390,16 @@ namespace KHInsider
 
 	bool FetchRandomAlbum(const CStringA& formBody, Album& album)
 	{
+		// Unique query each call so no cache/edge layer can serve a stale
+		// (always-identical) "random" album back to us.
+		static volatile LONG s_nonce = 0;
+		const LONG nonce = ::InterlockedIncrement(&s_nonce);
+		CStringW url;
+		url.Format(L"%s/random-album-advanced?_=%lu%ld", KHINSIDER_BASE, ::GetTickCount(), nonce);
+
 		urlData data;
 		CStringW finalUrl;
-		if (!URLRequest(L"POST", KHINSIDER_BASE L"/random-album-advanced", formBody, data, &finalUrl)) {
+		if (!URLRequest(L"POST", url, formBody, data, &finalUrl)) {
 			return false;
 		}
 
