@@ -20,9 +20,10 @@
 
 #include "stdafx.h"
 #include "mplayerc.h"
-#include "DSUtil/HTTPAsync.h"
 #include "DSUtil/text.h"
 #include "KHInsider.h"
+
+#include <WinInet.h>
 
 #include <map>
 #include <regex>
@@ -35,66 +36,58 @@
 #define KHINSIDER_HOST L"downloads.khinsider.com"
 #define KHINSIDER_BASE L"https://downloads.khinsider.com"
 
+// downloads.khinsider.com sits behind Cloudflare, which rejects requests
+// that do not look like they come from a real browser.
+#define KH_USER_AGENT L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
 namespace KHInsider
 {
 	using urlData = std::vector<char>;
 
-	static bool URLGetData(LPCWSTR url, urlData& pData)
+	// GET or POST (form-urlencoded when 'body' is non-empty) with browser-like
+	// headers. WinInet follows redirects; 'pFinalUrl' (optional) receives the
+	// URL we actually ended up on.
+	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr)
 	{
 		pData.clear();
+		if (pFinalUrl) {
+			pFinalUrl->Empty();
+		}
 
-		CHTTPAsync HTTPAsync;
-		if (FAILED(HTTPAsync.Connect(url, http::connectTimeout))) {
+		WCHAR host[256] = {};
+		WCHAR path[2048] = {};
+		URL_COMPONENTSW uc = { sizeof(uc) };
+		uc.lpszHostName = host;
+		uc.dwHostNameLength = static_cast<DWORD>(std::size(host));
+		uc.lpszUrlPath = path;
+		uc.dwUrlPathLength = static_cast<DWORD>(std::size(path));
+		if (!InternetCrackUrlW(url, 0, 0, &uc)) {
 			return false;
 		}
+		const bool bHttps = (uc.nScheme == INTERNET_SCHEME_HTTPS);
 
-		const auto contentLength = HTTPAsync.GetLenght();
-		if (contentLength) {
-			pData.resize(contentLength);
-			DWORD dwSizeRead = 0;
-			if (S_OK != HTTPAsync.Read((PBYTE)pData.data(), contentLength, dwSizeRead, http::readTimeout) || dwSizeRead != contentLength) {
-				pData.clear();
-			}
-		} else {
-			std::vector<char> tmp(16 * KILOBYTE);
-			for (;;) {
-				DWORD dwSizeRead = 0;
-				if (S_OK != HTTPAsync.Read((PBYTE)tmp.data(), tmp.size(), dwSizeRead, http::readTimeout)) {
-					break;
-				}
-				pData.insert(pData.end(), tmp.begin(), tmp.begin() + dwSizeRead);
-			}
-		}
-
-		if (!pData.empty()) {
-			pData.emplace_back('\0');
-			return true;
-		}
-
-		return false;
-	}
-
-	// POST 'body' as application/x-www-form-urlencoded and read the final page.
-	// WinInet follows the 302 redirect to the album page; 'finalUrl' receives the
-	// URL we actually ended up on.
-	static bool URLPostForm(LPCWSTR path, const CStringA& body, urlData& pData, CStringW& finalUrl)
-	{
-		pData.clear();
-		finalUrl.Empty();
-
-		if (auto hInet = InternetOpenW(http::userAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0)) {
-			if (auto hSession = InternetConnectW(hInet, KHINSIDER_HOST, INTERNET_DEFAULT_HTTPS_PORT, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 1)) {
+		if (auto hInet = InternetOpenW(KH_USER_AGENT, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0)) {
+			if (auto hSession = InternetConnectW(hInet, host, uc.nPort, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 1)) {
+				const DWORD dwFlags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | (bHttps ? INTERNET_FLAG_SECURE : 0);
 				if (auto hRequest = HttpOpenRequestW(hSession,
-													 L"POST",
-													 path, nullptr, nullptr, nullptr,
-													 INTERNET_FLAG_SECURE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 1)) {
+													 verb,
+													 path, nullptr,
+													 KHINSIDER_BASE L"/",
+													 nullptr, dwFlags, 1)) {
 
-					LPCWSTR headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
+					CStringW headers =
+						L"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
+						L"Accept-Language: en-US,en;q=0.9\r\n";
+					if (!body.IsEmpty()) {
+						headers += L"Content-Type: application/x-www-form-urlencoded\r\n";
+					}
+
 					CStringA requestData(body);
 					if (HttpSendRequestW(hRequest, headers, -1,
-										 reinterpret_cast<LPVOID>(requestData.GetBuffer()), requestData.GetLength())) {
+										 body.IsEmpty() ? nullptr : reinterpret_cast<LPVOID>(requestData.GetBuffer()),
+										 requestData.GetLength())) {
 
-						std::vector<char> tmp(16 * KILOBYTE);
+						std::vector<char> tmp(16 * 1024);
 						for (;;) {
 							DWORD dwSizeRead = 0;
 							if (!InternetReadFile(hRequest, reinterpret_cast<LPVOID>(tmp.data()), tmp.size(), &dwSizeRead) || !dwSizeRead) {
@@ -106,10 +99,12 @@ namespace KHInsider
 						if (!pData.empty()) {
 							pData.emplace_back('\0');
 
-							WCHAR urlBuf[2048] = {};
-							DWORD urlLen = std::size(urlBuf);
-							if (InternetQueryOptionW(hRequest, INTERNET_OPTION_URL, urlBuf, &urlLen)) {
-								finalUrl = urlBuf;
+							if (pFinalUrl) {
+								WCHAR urlBuf[2048] = {};
+								DWORD urlLen = static_cast<DWORD>(std::size(urlBuf));
+								if (InternetQueryOptionW(hRequest, INTERNET_OPTION_URL, urlBuf, &urlLen)) {
+									*pFinalUrl = urlBuf;
+								}
 							}
 						}
 					}
@@ -292,8 +287,14 @@ namespace KHInsider
 	{
 		urlData data;
 		CStringW finalUrl;
-		if (!URLPostForm(L"/random-album-advanced", formBody, data, finalUrl)) {
+		if (!URLRequest(L"POST", KHINSIDER_BASE L"/random-album-advanced", formBody, data, &finalUrl)) {
 			return false;
+		}
+
+		// strip the "?from=random" tail so history entries compare cleanly
+		const int query = finalUrl.Find(L'?');
+		if (query != -1) {
+			finalUrl.Truncate(query);
 		}
 
 		return ParseAlbumPage(data, finalUrl, album);
@@ -302,7 +303,7 @@ namespace KHInsider
 	bool FetchAlbum(const CStringW& albumUrl, Album& album)
 	{
 		urlData data;
-		if (!URLGetData(albumUrl, data)) {
+		if (!URLRequest(L"GET", albumUrl, CStringA(), data)) {
 			return false;
 		}
 
@@ -312,7 +313,7 @@ namespace KHInsider
 	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl)
 	{
 		urlData data;
-		if (!URLGetData(trackPageUrl, data)) {
+		if (!URLRequest(L"GET", trackPageUrl, CStringA(), data)) {
 			return L"";
 		}
 

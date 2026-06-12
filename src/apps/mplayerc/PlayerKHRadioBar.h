@@ -52,6 +52,7 @@ public:
 	CListBox m_listType;
 	CListBox m_listYear;
 	CListBox m_listPlatform;
+	CButton  m_buttonClear;
 	CButton  m_checkAvoidPlayed;
 	CButton  m_buttonRandom;
 	CStatic  m_staticStatus;
@@ -66,7 +67,9 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 	afx_msg void OnDestroy();
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 	afx_msg void OnSelChangeFilters();
+	afx_msg void OnClearFilters();
 	afx_msg void OnAvoidPlayedClicked();
 	afx_msg void OnRandomAlbum();
 	afx_msg void OnHistoryDblClk();
@@ -101,6 +104,14 @@ private:
 
 	std::shared_ptr<std::atomic<UINT>> m_pGen = std::make_shared<std::atomic<UINT>>(0);
 	bool m_bFetching = false;
+
+	// dark theme support (matches the playlist bar's palette)
+	bool m_bDarkTheme = false;
+	COLORREF m_crText = 0;
+	COLORREF m_crListText = 0;
+	COLORREF m_crListBk = 0;
+	CBrush m_brushWindow;
+	CBrush m_brushList;
 
 	KHInsider::Album m_currentAlbum;
 	bool m_bPlaylistStarted = false;

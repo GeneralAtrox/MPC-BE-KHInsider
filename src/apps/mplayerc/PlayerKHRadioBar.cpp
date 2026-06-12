@@ -22,6 +22,12 @@
 #include "MainFrm.h"
 #include "PlayerKHRadioBar.h"
 #include "FileItem.h"
+#include "Misc.h"
+
+// declared here instead of including coolscroll.h, which defines a global
+// variable and may only be included from one translation unit
+typedef COLORREF (*ptr_themeRGB)(const int, const int, const int);
+extern "C" BOOL WINAPI InitializeCoolSB(HWND hwnd, ptr_themeRGB ThemeRGB);
 
 // option tables mirroring https://downloads.khinsider.com/random-album-advanced
 
@@ -163,6 +169,7 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_KHRADIO_TYPE_LIST, m_listType);
 	DDX_Control(pDX, IDC_KHRADIO_YEAR_LIST, m_listYear);
 	DDX_Control(pDX, IDC_KHRADIO_PLATFORM_LIST, m_listPlatform);
+	DDX_Control(pDX, IDC_KHRADIO_CLEAR_BUTTON, m_buttonClear);
 	DDX_Control(pDX, IDC_KHRADIO_AVOID_CHECK, m_checkAvoidPlayed);
 	DDX_Control(pDX, IDC_KHRADIO_RANDOM_BUTTON, m_buttonRandom);
 	DDX_Control(pDX, IDC_KHRADIO_STATUS, m_staticStatus);
@@ -171,9 +178,11 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 
 BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_WM_DESTROY()
+	ON_WM_CTLCOLOR()
 	ON_LBN_SELCHANGE(IDC_KHRADIO_TYPE_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_YEAR_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_PLATFORM_LIST, OnSelChangeFilters)
+	ON_BN_CLICKED(IDC_KHRADIO_CLEAR_BUTTON, OnClearFilters)
 	ON_BN_CLICKED(IDC_KHRADIO_AVOID_CHECK, OnAvoidPlayedClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_RANDOM_BUTTON, OnRandomAlbum)
 	ON_LBN_DBLCLK(IDC_KHRADIO_HISTORY_LIST, OnHistoryDblClk)
@@ -199,15 +208,59 @@ BOOL CKHRadioDlg::OnInitDialog()
 	AddAnchor(IDC_KHRADIO_YEAR_LIST, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_PLATFORM_LABEL, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_PLATFORM_LIST, TOP_LEFT, TOP_RIGHT);
+	AddAnchor(IDC_KHRADIO_CLEAR_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_AVOID_CHECK, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_RANDOM_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_STATUS, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_HISTORY_LABEL, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_HISTORY_LIST, TOP_LEFT, BOTTOM_RIGHT);
 
+	// match the player's dark theme, using the same palette as the playlist bar
+	m_bDarkTheme = !!AfxGetAppSettings().bUseDarkTheme;
+	if (m_bDarkTheme) {
+		m_crText = ThemeRGB(165, 170, 175);
+		m_crListText = ThemeRGB(135, 140, 145);
+		m_crListBk = ThemeRGB(10, 15, 20);
+		m_brushWindow.CreateSolidBrush(ThemeRGB(45, 50, 55));
+		m_brushList.CreateSolidBrush(m_crListBk);
+
+		for (CListBox* pList : { &m_listType, &m_listYear, &m_listPlatform, &m_listHistory }) {
+			InitializeCoolSB(pList->m_hWnd, ThemeRGB);
+		}
+	}
+
 	SetStatus(L"Ready. Pick your filters and roll an album.");
 
 	return TRUE;
+}
+
+HBRUSH CKHRadioDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	if (m_bDarkTheme) {
+		switch (nCtlColor) {
+			case CTLCOLOR_DLG:
+			case CTLCOLOR_BTN:
+				return m_brushWindow;
+			case CTLCOLOR_STATIC:
+				pDC->SetTextColor(m_crText);
+				pDC->SetBkMode(TRANSPARENT);
+				return m_brushWindow;
+			case CTLCOLOR_LISTBOX:
+				pDC->SetTextColor(m_crListText);
+				pDC->SetBkColor(m_crListBk);
+				return m_brushList;
+		}
+	}
+
+	return __super::OnCtlColor(pDC, pWnd, nCtlColor);
+}
+
+void CKHRadioDlg::OnClearFilters()
+{
+	m_listType.SetSel(-1, FALSE);
+	m_listYear.SetSel(-1, FALSE);
+	m_listPlatform.SetSel(-1, FALSE);
+	SaveSelections();
 }
 
 void CKHRadioDlg::OnDestroy()
