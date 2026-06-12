@@ -129,6 +129,9 @@ static const KHOption s_khPlatforms[] = {
 // total albums to keep in the playlist (the one playing + ones queued ahead)
 #define KHRADIO_QUEUE_DEPTH 2
 
+// "Filter non-music tracks" drops tracks shorter than this (seconds)
+#define KHRADIO_MIN_TRACK_SEC 30
+
 // worker -> UI message payloads
 
 struct KHRadioTextMsg {
@@ -140,7 +143,7 @@ struct KHRadioDoneMsg {
 	UINT gen;
 	bool bAppend;
 	int resolved;       // number of tracks queued by this fetch
-	int skippedSpoken;  // tracks dropped by the spoken-track filter
+	int skippedFiltered; // tracks dropped (spoken / short / silent)
 	CStringW text;      // error/status to show (empty = success)
 };
 
@@ -590,7 +593,7 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 	const int attempts = p->bDirect ? 1 : maxAttempts;
 
 	int resolved = 0;
-	int skippedSpoken = 0;
+	int skippedFiltered = 0;
 	bool fetchOk = false;
 	KHInsider::FetchStatus fetchStatus = KHInsider::FetchStatus::NetworkError;
 
@@ -643,22 +646,34 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 
 		if (p->bFilterSpoken) {
 			CStringW status;
-			status.Format(L"Checking '%s' for spoken tracks...", album.title.GetString());
+			status.Format(L"Checking '%s' for non-music tracks...", album.title.GetString());
 			postText(WM_KHRADIO_STATUS, status);
 		}
 
 		// resolve tracks; the album message is posted lazily on the first
-		// playable track so a fully-spoken album can be rerolled cleanly
+		// playable track so a fully-filtered album can be rerolled cleanly
 		bool albumPosted = false;
-		skippedSpoken = 0; // count for this album only (rerolls reset it)
+		skippedFiltered = 0; // count for this album only (rerolls reset it)
 		for (size_t i = 0; i < album.tracks.size() && !cancelled(); i++) {
+			// cheap filter first: drop very short tracks using the page's
+			// duration, before spending a request resolving the audio
+			if (p->bFilterSpoken && album.tracks[i].durationSec > 0
+					&& album.tracks[i].durationSec < KHRADIO_MIN_TRACK_SEC) {
+				skippedFiltered++;
+				KHInsider::DebugLog(L"skip short track '" + album.tracks[i].name + L"'");
+				continue;
+			}
+
 			const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl);
 			if (audioUrl.IsEmpty()) {
 				continue;
 			}
-			if (p->bFilterSpoken && KHInsider::IsLikelySpokenTrack(audioUrl, album.tracks[i].name)) {
-				skippedSpoken++;
-				continue;
+			if (p->bFilterSpoken) {
+				const auto verdict = KHInsider::ClassifyTrackAudio(audioUrl, album.tracks[i].name);
+				if (verdict != KHInsider::AudioVerdict::Music) {
+					skippedFiltered++;
+					continue;
+				}
 			}
 
 			if (!albumPosted) {
@@ -716,12 +731,12 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 				break;
 		}
 	} else if (resolved == 0) {
-		doneText = skippedSpoken > 0
-			? CStringW(L"Every track looked spoken - try unchecking 'Filter spoken tracks'.")
+		doneText = skippedFiltered > 0
+			? CStringW(L"Every track was filtered out - try unchecking 'Filter non-music tracks'.")
 			: CStringW(L"No playable tracks found - try different filters.");
 	}
 
-	auto* dm = new KHRadioDoneMsg{ p->gen, p->bAppend, resolved, skippedSpoken, doneText };
+	auto* dm = new KHRadioDoneMsg{ p->gen, p->bAppend, resolved, skippedFiltered, doneText };
 	if (!::PostMessageW(p->hWnd, WM_KHRADIO_DONE, 0, reinterpret_cast<LPARAM>(dm))) {
 		delete dm;
 	}
@@ -853,8 +868,8 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 	} else if (!m_currentAlbum.title.IsEmpty()) {
 		CStringW status;
 		status.Format(m->bAppend ? L"Queued next: %s" : L"Playing: %s", m_currentAlbum.title.GetString());
-		if (m->skippedSpoken > 0) {
-			status.AppendFormat(L"  (skipped %d spoken)", m->skippedSpoken);
+		if (m->skippedFiltered > 0) {
+			status.AppendFormat(L"  (skipped %d non-music)", m->skippedFiltered);
 		}
 		SetStatus(status);
 	}

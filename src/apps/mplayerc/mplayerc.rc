@@ -1255,7 +1255,7 @@ BEGIN
     PUSHBUTTON      "Clear Filters",IDC_KHRADIO_CLEAR_BUTTON,5,208,160,12
     CONTROL         "Skip albums I've already heard",IDC_KHRADIO_AVOID_CHECK,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,5,224,160,10
-    CONTROL         "Filter spoken tracks",IDC_KHRADIO_SPOKEN_CHECK,
+    CONTROL         "Filter spoken / short / silent tracks",IDC_KHRADIO_SPOKEN_CHECK,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,5,236,160,10
     DEFPUSHBUTTON   "Show Me A Random Album",IDC_KHRADIO_RANDOM_BUTTON,5,250,160,16
     LTEXT           "",IDC_KHRADIO_STATUS,5,270,160,18

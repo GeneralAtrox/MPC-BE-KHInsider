@@ -26,8 +26,16 @@
 namespace KHInsider
 {
 	struct Track {
-		CStringW name;    // display name
-		CStringW pageUrl; // track page on downloads.khinsider.com
+		CStringW name;        // display name
+		CStringW pageUrl;     // track page on downloads.khinsider.com
+		int      durationSec = 0; // length from the album page (0 if unknown)
+	};
+
+	// Result of analysing a track's audio for the "skip non-music" filter.
+	enum class AudioVerdict {
+		Music,   // keep it
+		Spoken,  // dialogue/drama/narration
+		Quiet,   // (near-)silent / empty
 	};
 
 	struct Album {
@@ -63,9 +71,9 @@ namespace KHInsider
 	// Download a binary resource (e.g. cover image) to a local file.
 	bool DownloadToFile(const CStringW& url, const CStringW& localPath);
 
-	// Heuristic speech/music classifier: true if the track looks like spoken
-	// content (dialogue, drama, narration) rather than music.
-	bool IsLikelySpokenTrack(const CStringW& audioUrl, const CStringW& trackName);
+	// Download a prefix of the track and classify it as music, spoken, or
+	// (near-)silent, for the "skip non-music tracks" filter.
+	AudioVerdict ClassifyTrackAudio(const CStringW& audioUrl, const CStringW& trackName);
 
 	CStringW DecodeHtmlEntities(CStringW str);
 

@@ -348,6 +348,7 @@ namespace KHInsider
 		static const std::regex reSize("^[\\d.,]+\\s*[KMG]B$", std::regex::icase);
 
 		std::map<std::string, bool> seen;
+		std::string lastHref; // href of the most recently added track (for its duration cell)
 
 		for (auto it = std::sregex_iterator(songlist.begin(), songlist.end(), reLink); it != std::sregex_iterator(); ++it) {
 			const std::string href = (*it)[1].str();
@@ -363,7 +364,18 @@ namespace KHInsider
 				continue;
 			}
 			const std::string nameUtf8(WStrToUTF8(name));
-			if (std::regex_match(nameUtf8, reDuration) || std::regex_match(nameUtf8, reSize)) {
+			if (std::regex_match(nameUtf8, reDuration)) {
+				// each row has a duration cell linking to the same track page;
+				// record it against the track we just added
+				if (!album.tracks.empty() && href == lastHref && album.tracks.back().durationSec == 0) {
+					int a = 0, b = 0, c = 0;
+					const int parts = sscanf_s(nameUtf8.c_str(), "%d:%d:%d", &a, &b, &c);
+					album.tracks.back().durationSec = (parts == 3) ? (a * 3600 + b * 60 + c)
+													: (parts == 2) ? (a * 60 + b) : 0;
+				}
+				continue;
+			}
+			if (std::regex_match(nameUtf8, reSize)) {
 				continue;
 			}
 			if (seen.find(href) != seen.end()) {
@@ -375,6 +387,7 @@ namespace KHInsider
 			track.name = name;
 			track.pageUrl = KHINSIDER_BASE + DecodeHtmlEntities(UTF8ToWStr(href.c_str()));
 			album.tracks.emplace_back(track);
+			lastHref = href;
 		}
 
 		if (album.title.IsEmpty() && !pageUrl.IsEmpty()) {
@@ -517,14 +530,16 @@ namespace KHInsider
 		return true;
 	}
 
-	// Speech-vs-music classification. First a cheap title check, then a
-	// content analysis of a downloaded prefix: speech has a characteristic
-	// ~4 Hz syllabic energy modulation, more pauses, and a higher variance in
-	// zero-crossing rate than music. Conservative thresholds favour keeping
-	// music; every decision is logged so the cut-offs can be tuned.
-	bool IsLikelySpokenTrack(const CStringW& audioUrl, const CStringW& trackName)
+	// Classify a track as music, spoken, or (near-)silent. First a cheap title
+	// check for spoken content, then a content analysis of a downloaded prefix:
+	// a prefix that never gets above a faint loudness is treated as empty/quiet;
+	// speech has a characteristic ~4 Hz syllabic energy modulation, more pauses,
+	// and higher zero-crossing-rate variance than music. Conservative thresholds
+	// favour keeping music; every decision is logged so cut-offs can be tuned.
+	AudioVerdict ClassifyTrackAudio(const CStringW& audioUrl, const CStringW& trackName)
 	{
 		constexpr double kPi = 3.14159265358979323846;
+		constexpr double kQuietPeakRms = 0.015; // prefix never louder than this -> empty/quiet
 
 		CStringW lower = trackName;
 		lower.MakeLower();
@@ -540,15 +555,15 @@ namespace KHInsider
 		};
 		for (const auto w : spokenWords) {
 			if (lower.Find(w) != -1) {
-				KHLog(L"speech check '%s': title match -> SPOKEN", trackName.GetString());
-				return true;
+				KHLog(L"audio check '%s': title match -> SPOKEN", trackName.GetString());
+				return AudioVerdict::Spoken;
 			}
 		}
 
 		// download a short prefix (~256 KB, enough for ~10-15s)
 		urlData mp3;
 		if (!URLRequest(L"GET", audioUrl, CStringA(), mp3, nullptr, L"Range: bytes=0-262143\r\n", 262144) || mp3.size() < 8192) {
-			return false; // can't analyse -> keep the track
+			return AudioVerdict::Music; // can't analyse -> keep the track
 		}
 
 		// decode to mono float PCM
@@ -583,17 +598,18 @@ namespace KHInsider
 		}
 
 		if (hz <= 0 || mono.size() < static_cast<size_t>(hz)) {
-			return false; // need at least ~1s of audio
+			return AudioVerdict::Music; // need at least ~1s of audio to judge -> keep
 		}
 
 		// 20 ms frames -> energy envelope (50 fps) and zero-crossing rate
 		const int frameLen = hz / 50;
 		const int nFrames = static_cast<int>(mono.size() / frameLen);
 		if (frameLen < 1 || nFrames < 25) {
-			return false;
+			return AudioVerdict::Music;
 		}
 
 		std::vector<float> energy(nFrames), zcr(nFrames);
+		double maxE = 0.0;
 		for (int f = 0; f < nFrames; f++) {
 			const float* x = &mono[static_cast<size_t>(f) * frameLen];
 			double e = 0.0;
@@ -606,13 +622,17 @@ namespace KHInsider
 			}
 			energy[f] = static_cast<float>(std::sqrt(e / frameLen));
 			zcr[f] = static_cast<float>(zc) / frameLen;
+			if (energy[f] > maxE) maxE = energy[f];
 		}
 
 		double meanE = 0.0;
 		for (const float e : energy) meanE += e;
 		meanE /= nFrames;
-		if (meanE < 1e-4) {
-			return false; // essentially silent
+
+		// empty/very quiet: the loudest 20 ms in the whole prefix is still faint
+		if (maxE < kQuietPeakRms) {
+			KHLog(L"audio check '%s': peak=%.4f mean=%.4f -> QUIET", trackName.GetString(), maxE, meanE);
+			return AudioVerdict::Quiet;
 		}
 
 		int pauses = 0;
@@ -653,10 +673,10 @@ namespace KHInsider
 		if (zcrCoV > 0.65) score += 1;     // voiced/unvoiced alternation
 		const bool spoken = score >= 3;
 
-		KHLog(L"speech check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f score=%d -> %s",
-			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, score, spoken ? L"SPOKEN" : L"music");
+		KHLog(L"audio check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f peak=%.3f score=%d -> %s",
+			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, maxE, score, spoken ? L"SPOKEN" : L"music");
 
-		return spoken;
+		return spoken ? AudioVerdict::Spoken : AudioVerdict::Music;
 	}
 } // namespace KHInsider
 
