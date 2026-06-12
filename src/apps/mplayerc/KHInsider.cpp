@@ -101,11 +101,14 @@ namespace KHInsider
 	// HTTP/2 option does not take effect and gets a 403). Redirects are
 	// followed; 'pFinalUrl' (optional) receives the URL we actually ended up on.
 	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
-						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0)
+						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0, DWORD* pHttpStatus = nullptr)
 	{
 		pData.clear();
 		if (pFinalUrl) {
 			pFinalUrl->Empty();
+		}
+		if (pHttpStatus) {
+			*pHttpStatus = 0;
 		}
 
 		WCHAR host[256] = {};
@@ -190,6 +193,10 @@ namespace KHInsider
 				WinHttpCloseHandle(hConnect);
 			}
 			WinHttpCloseHandle(hSession);
+		}
+
+		if (pHttpStatus) {
+			*pHttpStatus = dwStatus;
 		}
 
 		KHLog(L"%s %s -> status %lu, %u bytes%s%s", verb, url.GetString(), dwStatus,
@@ -297,24 +304,44 @@ namespace KHInsider
 		// Track list: links inside the songlist table, skipping the
 		// header/footer rows (their cells may hold sort/download links).
 		size_t listStart = html.find("id=\"songlist\"");
-		if (listStart == std::string::npos) {
-			return false;
-		}
-		const size_t headerPos = html.find("id=\"songlist_header\"", listStart);
-		if (headerPos != std::string::npos) {
-			const size_t headerEnd = html.find("</tr>", headerPos);
-			if (headerEnd != std::string::npos) {
-				listStart = headerEnd;
+		size_t listEnd;
+		bool bFallback = false;
+		if (listStart != std::string::npos) {
+			const size_t headerPos = html.find("id=\"songlist_header\"", listStart);
+			if (headerPos != std::string::npos) {
+				const size_t headerEnd = html.find("</tr>", headerPos);
+				if (headerEnd != std::string::npos) {
+					listStart = headerEnd;
+				}
 			}
-		}
-		size_t listEnd = html.find("id=\"songlist_footer\"", listStart);
-		if (listEnd == std::string::npos) {
-			listEnd = html.find("</table>", listStart);
-		}
-		if (listEnd == std::string::npos) {
+			listEnd = html.find("id=\"songlist_footer\"", listStart);
+			if (listEnd == std::string::npos) {
+				listEnd = html.find("</table>", listStart);
+			}
+			if (listEnd == std::string::npos) {
+				listEnd = html.size();
+			}
+		} else {
+			// The songlist marker is gone - the site may have been redesigned.
+			// Scan the whole page, but only accept links under THIS album's
+			// path so we don't pick up sidebar links to other albums.
+			bFallback = true;
+			listStart = 0;
 			listEnd = html.size();
+			KHLog(L"songlist marker not found - scanning whole page (site layout may have changed)");
 		}
 		const std::string songlist = html.substr(listStart, listEnd - listStart);
+
+		// album path prefix, e.g. "/game-soundtracks/album/<slug>/", for the fallback
+		std::string albumPrefix;
+		{
+			const CStringA puA = WStrToUTF8(pageUrl);
+			const std::string pu(puA.GetString());
+			const size_t ap = pu.find("/game-soundtracks/album/");
+			if (ap != std::string::npos) {
+				albumPrefix = pu.substr(ap) + "/";
+			}
+		}
 
 		static const std::regex reLink("<a\\s+href=\"(/game-soundtracks/album/[^\"]+)\"[^>]*>([^<]+)</a>", std::regex::icase);
 		static const std::regex reDuration("^\\d+:\\d{2}(:\\d{2})?$");
@@ -325,6 +352,11 @@ namespace KHInsider
 		for (auto it = std::sregex_iterator(songlist.begin(), songlist.end(), reLink); it != std::sregex_iterator(); ++it) {
 			const std::string href = (*it)[1].str();
 			std::string text = (*it)[2].str();
+
+			// in fallback mode keep only this album's own track links
+			if (bFallback && (albumPrefix.empty() || href.compare(0, albumPrefix.size(), albumPrefix) != 0)) {
+				continue;
+			}
 
 			CStringW name = Trimmed(DecodeHtmlEntities(UTF8ToWStr(text.c_str())));
 			if (name.IsEmpty()) {
@@ -388,7 +420,13 @@ namespace KHInsider
 		return body;
 	}
 
-	bool FetchRandomAlbum(const CStringA& formBody, Album& album)
+	// Translate an HTTP failure into a FetchStatus for the UI.
+	static FetchStatus StatusFromHttp(DWORD httpStatus)
+	{
+		return (httpStatus >= 400) ? FetchStatus::Blocked : FetchStatus::NetworkError;
+	}
+
+	bool FetchRandomAlbum(const CStringA& formBody, Album& album, FetchStatus* pStatus)
 	{
 		// Unique query each call so no cache/edge layer can serve a stale
 		// (always-identical) "random" album back to us.
@@ -399,7 +437,9 @@ namespace KHInsider
 
 		urlData data;
 		CStringW finalUrl;
-		if (!URLRequest(L"POST", url, formBody, data, &finalUrl)) {
+		DWORD httpStatus = 0;
+		if (!URLRequest(L"POST", url, formBody, data, &finalUrl, nullptr, 0, &httpStatus)) {
+			if (pStatus) { *pStatus = StatusFromHttp(httpStatus); }
 			return false;
 		}
 
@@ -409,17 +449,31 @@ namespace KHInsider
 			finalUrl.Truncate(query);
 		}
 
-		return ParseAlbumPage(data, finalUrl, album);
-	}
-
-	bool FetchAlbum(const CStringW& albumUrl, Album& album)
-	{
-		urlData data;
-		if (!URLRequest(L"GET", albumUrl, CStringA(), data)) {
+		if (!ParseAlbumPage(data, finalUrl, album)) {
+			if (pStatus) { *pStatus = FetchStatus::LayoutChanged; }
 			return false;
 		}
 
-		return ParseAlbumPage(data, albumUrl, album);
+		if (pStatus) { *pStatus = FetchStatus::Success; }
+		return true;
+	}
+
+	bool FetchAlbum(const CStringW& albumUrl, Album& album, FetchStatus* pStatus)
+	{
+		urlData data;
+		DWORD httpStatus = 0;
+		if (!URLRequest(L"GET", albumUrl, CStringA(), data, nullptr, nullptr, 0, &httpStatus)) {
+			if (pStatus) { *pStatus = StatusFromHttp(httpStatus); }
+			return false;
+		}
+
+		if (!ParseAlbumPage(data, albumUrl, album)) {
+			if (pStatus) { *pStatus = FetchStatus::LayoutChanged; }
+			return false;
+		}
+
+		if (pStatus) { *pStatus = FetchStatus::Success; }
+		return true;
 	}
 
 	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl)

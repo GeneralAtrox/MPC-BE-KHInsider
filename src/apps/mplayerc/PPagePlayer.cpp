@@ -97,6 +97,15 @@ BOOL CPPagePlayer::OnInitDialog()
 	m_iSetsLocation = m_iCurSetsLocation;
 
 	m_iMultipleInst				= s.iMultipleInst;
+	// KH Radio edition always runs single-instance (see CAppSettings::GetMultiInst),
+	// so the "Open options" choice has no effect - lock it to single process.
+	m_iMultipleInst = 0;
+	CheckRadioButton(IDC_RADIO1, IDC_RADIO3, IDC_RADIO1);
+	for (const UINT id : { IDC_RADIO1, IDC_RADIO2, IDC_RADIO3 }) {
+		if (CWnd* pWnd = GetDlgItem(id)) {
+			pWnd->EnableWindow(FALSE);
+		}
+	}
 	m_bTrayIcon					= s.bTrayIcon;
 	m_bSavePnSZoom				= s.bSavePnSZoom;
 	m_bKeepHistory				= s.bKeepHistory;

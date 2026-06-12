@@ -139,8 +139,9 @@ struct KHRadioTextMsg {
 struct KHRadioDoneMsg {
 	UINT gen;
 	bool bAppend;
-	int resolved;   // number of tracks queued by this fetch
-	CStringW text;  // status to show (empty = success)
+	int resolved;       // number of tracks queued by this fetch
+	int skippedSpoken;  // tracks dropped by the spoken-track filter
+	CStringW text;      // error/status to show (empty = success)
 };
 
 struct KHRadioAlbumMsg {
@@ -222,6 +223,20 @@ BOOL CKHRadioDlg::OnInitDialog()
 
 	m_history.Load();
 	RefreshHistoryList();
+
+	// nothing is playing yet, so any cover images left from a previous
+	// (possibly crashed) session are stale - delete them.
+	CStringW coverDir;
+	if (AfxGetMyApp()->GetAppSavePath(coverDir)) {
+		WIN32_FIND_DATAW wfd;
+		HANDLE hFind = FindFirstFileW(coverDir + L"khradio_cover_*.img", &wfd);
+		if (hFind != INVALID_HANDLE_VALUE) {
+			do {
+				::DeleteFileW(coverDir + wfd.cFileName);
+			} while (FindNextFileW(hFind, &wfd));
+			FindClose(hFind);
+		}
+	}
 
 	AddAnchor(IDC_KHRADIO_TYPE_LABEL, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_TYPE_LIST, TOP_LEFT, TOP_RIGHT);
@@ -575,13 +590,17 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 	const int attempts = p->bDirect ? 1 : maxAttempts;
 
 	int resolved = 0;
+	int skippedSpoken = 0;
 	bool fetchOk = false;
+	KHInsider::FetchStatus fetchStatus = KHInsider::FetchStatus::NetworkError;
 
 	for (int attempt = 1; attempt <= attempts && !cancelled(); attempt++) {
 		KHInsider::Album album;
-		if (p->bDirect ? !KHInsider::FetchAlbum(p->albumUrl, album)
-					   : !KHInsider::FetchRandomAlbum(p->formBody, album)) {
-			break; // network/parse failure
+		const bool gotAlbum = p->bDirect
+			? KHInsider::FetchAlbum(p->albumUrl, album, &fetchStatus)
+			: KHInsider::FetchRandomAlbum(p->formBody, album, &fetchStatus);
+		if (!gotAlbum) {
+			break; // network/parse failure; fetchStatus has the reason
 		}
 		fetchOk = true;
 
@@ -631,12 +650,14 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 		// resolve tracks; the album message is posted lazily on the first
 		// playable track so a fully-spoken album can be rerolled cleanly
 		bool albumPosted = false;
+		skippedSpoken = 0; // count for this album only (rerolls reset it)
 		for (size_t i = 0; i < album.tracks.size() && !cancelled(); i++) {
 			const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl);
 			if (audioUrl.IsEmpty()) {
 				continue;
 			}
 			if (p->bFilterSpoken && KHInsider::IsLikelySpokenTrack(audioUrl, album.tracks[i].name)) {
+				skippedSpoken++;
 				continue;
 			}
 
@@ -680,10 +701,27 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 		return 0;
 	}
 
-	const CStringW doneText = !fetchOk
-		? CStringW(L"Could not fetch an album. Check your connection and filters.")
-		: (resolved ? CStringW() : CStringW(L"No playable tracks found - try different filters."));
-	auto* dm = new KHRadioDoneMsg{ p->gen, p->bAppend, resolved, doneText };
+	// build a diagnostic message so site/network breakage is self-explanatory
+	CStringW doneText; // empty == success (handler shows "Playing/Queued")
+	if (!fetchOk) {
+		switch (fetchStatus) {
+			case KHInsider::FetchStatus::Blocked:
+				doneText = L"KHInsider blocked the request (Cloudflare). Its bot protection may have changed.";
+				break;
+			case KHInsider::FetchStatus::LayoutChanged:
+				doneText = L"Couldn't read the album page - the site layout may have changed.";
+				break;
+			default:
+				doneText = L"Network error - check your connection.";
+				break;
+		}
+	} else if (resolved == 0) {
+		doneText = skippedSpoken > 0
+			? CStringW(L"Every track looked spoken - try unchecking 'Filter spoken tracks'.")
+			: CStringW(L"No playable tracks found - try different filters.");
+	}
+
+	auto* dm = new KHRadioDoneMsg{ p->gen, p->bAppend, resolved, skippedSpoken, doneText };
 	if (!::PostMessageW(p->hWnd, WM_KHRADIO_DONE, 0, reinterpret_cast<LPARAM>(dm))) {
 		delete dm;
 	}
@@ -798,6 +836,9 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 	} else if (!m_currentAlbum.title.IsEmpty()) {
 		CStringW status;
 		status.Format(m->bAppend ? L"Queued next: %s" : L"Playing: %s", m_currentAlbum.title.GetString());
+		if (m->skippedSpoken > 0) {
+			status.AppendFormat(L"  (skipped %d spoken)", m->skippedSpoken);
+		}
 		SetStatus(status);
 	}
 

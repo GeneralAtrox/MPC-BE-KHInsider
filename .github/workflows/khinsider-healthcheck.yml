@@ -1,0 +1,84 @@
+name: KHInsider scraper health check
+
+# Daily probe of the same request path the KH Radio scraper uses, so a
+# KHInsider redesign or tightened bot protection is caught before it breaks
+# your listening session. Fails (red badge) and files/updates an issue when
+# the scraper would no longer work.
+
+on:
+  schedule:
+    - cron: '17 7 * * *'   # daily, 07:17 UTC
+  workflow_dispatch:        # allow manual runs
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe random-album-advanced
+        id: probe
+        run: |
+          set -uo pipefail
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+          # POST the form and follow the 302 to a random album page (HTTP/2,
+          # browser UA - exactly what the in-app WinHTTP scraper sends).
+          if ! album=$(curl -fsS --http2 -A "$UA" -L -o album.html -w '%{url_effective}' \
+                -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+                --data 'randomAdvanced=Show+Me+A+Random+Album' \
+                'https://downloads.khinsider.com/random-album-advanced'); then
+            echo "reason=The request failed outright - the site is down, or Cloudflare is now blocking this user-agent/HTTP-2 path." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Landed on: $album"
+
+          if ! grep -q 'id="songlist"' album.html; then
+            echo "reason=Reached an album page but the 'songlist' marker is gone - KHInsider likely changed its HTML layout." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if ! grep -Eq 'href="/game-soundtracks/album/[^"]+\.mp3"' album.html; then
+            echo "reason=Found the songlist but no track links matched the expected pattern - the parser would return zero tracks." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          tracks=$(grep -Eo 'href="/game-soundtracks/album/[^"]+\.mp3"' album.html | sort -u | wc -l)
+          echo "OK - album page has a songlist with $tracks track link(s)."
+
+      - name: File or update an issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        env:
+          REASON: ${{ steps.probe.outputs.reason }}
+        with:
+          script: |
+            const reason = process.env.REASON || 'Unknown failure.';
+            const title = 'KH Radio: KHInsider scraper health check is failing';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              'The daily KHInsider scraper health check failed.',
+              '',
+              `**Likely cause:** ${reason}`,
+              '',
+              `**Run:** ${run}`,
+              '',
+              'The KH Radio scraper in `src/apps/mplayerc/KHInsider.cpp` probably needs a small update',
+              '(request headers, the random-album form, or the album-page parser regexes).',
+            ].join('\n');
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100,
+            });
+            const existing = issues.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo, title, body,
+              });
+            }

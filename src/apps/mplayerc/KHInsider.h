@@ -37,15 +37,24 @@ namespace KHInsider
 		std::vector<Track> tracks;
 	};
 
+	// Why a fetch failed, so the UI can show a useful message and we can tell
+	// "site is down / blocking us" apart from "site changed its HTML".
+	enum class FetchStatus {
+		Success,
+		NetworkError,  // no usable response (offline, timeout, DNS)
+		Blocked,       // HTTP 4xx - Cloudflare / bot protection likely changed
+		LayoutChanged, // page fetched but no tracks could be parsed
+	};
+
 	// POST body for the random-album-advanced form. Each list holds the numeric
 	// option values of the site's form ("type[]", "year[]", "category[]").
 	CStringA BuildRandomAlbumForm(const std::vector<int>& types, const std::vector<int>& years, const std::vector<int>& platforms);
 
 	// POST the random-album-advanced form; fills 'album' with title and track pages.
-	bool FetchRandomAlbum(const CStringA& formBody, Album& album);
+	bool FetchRandomAlbum(const CStringA& formBody, Album& album, FetchStatus* pStatus = nullptr);
 
 	// GET an album page directly (used when replaying an album from history).
-	bool FetchAlbum(const CStringW& albumUrl, Album& album);
+	bool FetchAlbum(const CStringW& albumUrl, Album& album, FetchStatus* pStatus = nullptr);
 
 	// GET a track page and extract the direct audio URL (mp3 preferred).
 	// Returns an empty string on failure.
