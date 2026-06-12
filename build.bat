@@ -135,7 +135,7 @@ IF NOT EXIST "%LOG_DIR%" MD "%LOG_DIR%"
 
 CALL :SubDetectWinArch
 
-SET "MSBUILD_SWITCHES=/nologo /consoleloggerparameters:Verbosity=minimal /maxcpucount /nodeReuse:true"
+SET "MSBUILD_SWITCHES=/nologo /consoleloggerparameters:Verbosity=minimal /maxcpucount /nodeReuse:true %MPCBE_MSBUILD_EXTRA%"
 
 SET START_TIME=%TIME%
 SET START_DATE=%DATE%
@@ -143,7 +143,7 @@ SET START_DATE=%DATE%
 IF /I "%BUILDPLATFORM%" == "Win32" (GOTO Win32) ELSE IF /I "%BUILDPLATFORM%" == "x64" (GOTO x64)
 
 :Win32
-CALL "%VCVARS%" -arch=x86
+CALL "%VCVARS%" -arch=x86 %MPCBE_VCVARS_EXTRA%
 REM again set the source directory (fix possible bug in VS2017)
 CD /D %~dp0
 
@@ -178,7 +178,7 @@ IF /I "%CONFIG%" == "All" (
 :x64
 IF /I "%BUILDPLATFORM%" == "Win32" GOTO End
 
-CALL "%VCVARS%" -arch=amd64
+CALL "%VCVARS%" -arch=amd64 %MPCBE_VCVARS_EXTRA%
 REM again set the source directory (fix possible bug in VS2017)
 CD /D %~dp0
 
