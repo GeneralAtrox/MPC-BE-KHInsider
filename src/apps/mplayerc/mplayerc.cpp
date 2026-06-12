@@ -1052,6 +1052,11 @@ BOOL CMPlayerCApp::InitInstance()
 	}
 	pFrame->RestoreControlBars();
 
+	// KH Radio edition: the radio panel is the main interface, show it on startup
+	if (m_s.bShowKHRadioBar) {
+		pFrame->ShowControlBarInternal(&pFrame->m_wndKHRadioBar, TRUE);
+	}
+
 	const auto ptLastWindowPos = m_s.ptLastWindowPos;
 	const auto szLastWindowSize = m_s.szLastWindowSize;
 	const auto nLastWindowType = m_s.nLastWindowType;

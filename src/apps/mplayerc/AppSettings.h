@@ -762,6 +762,12 @@ public:
 	int				iCaptionMenuMode; // normal -> hidemenu -> frameonly -> borderless
 	bool			fHideNavigation;
 	UINT			nCS; // Control state for toolbars
+	// KH Radio
+	bool			bShowKHRadioBar;
+	bool			bKHRadioAvoidPlayed;
+	CStringW		strKHRadioTypes;
+	CStringW		strKHRadioYears;
+	CStringW		strKHRadioPlatforms;
 	// Language
 	int				iLanguage;
 	int				iCurrentLanguage;

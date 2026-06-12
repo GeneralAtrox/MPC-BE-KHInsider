@@ -9,7 +9,7 @@
 //
 // Generated from the TEXTINCLUDE 2 resource.
 //
-#include "afxres.h"
+#include "afxres.h"
 /////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
 
@@ -1242,6 +1242,24 @@ BEGIN
     PUSHBUTTON      "",IDC_NAVIGATION_FILTERSTATIONS,5,269,140,11
 END
 
+IDD_KHRADIO_DLG DIALOGEX 0, 0, 170, 460
+STYLE DS_SETFONT | WS_CHILD
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Album Type (Ctrl-click for multiple)",IDC_KHRADIO_TYPE_LABEL,5,4,160,8
+    LISTBOX         IDC_KHRADIO_TYPE_LIST,5,14,160,52,LBS_NOINTEGRALHEIGHT | LBS_EXTENDEDSEL | LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Year",IDC_KHRADIO_YEAR_LABEL,5,70,160,8
+    LISTBOX         IDC_KHRADIO_YEAR_LIST,5,80,160,52,LBS_NOINTEGRALHEIGHT | LBS_EXTENDEDSEL | LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Platform",IDC_KHRADIO_PLATFORM_LABEL,5,136,160,8
+    LISTBOX         IDC_KHRADIO_PLATFORM_LIST,5,146,160,64,LBS_NOINTEGRALHEIGHT | LBS_EXTENDEDSEL | LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Skip albums I've already heard",IDC_KHRADIO_AVOID_CHECK,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,5,214,160,10
+    DEFPUSHBUTTON   "Show Me A Random Album",IDC_KHRADIO_RANDOM_BUTTON,5,228,160,16
+    LTEXT           "",IDC_KHRADIO_STATUS,5,248,160,18
+    LTEXT           "History (double-click to replay)",IDC_KHRADIO_HISTORY_LABEL,5,268,160,8
+    LISTBOX         IDC_KHRADIO_HISTORY_LIST,5,278,160,177,LBS_NOINTEGRALHEIGHT | LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
+END
+
 IDD_PPAGESUBTITLES DIALOGEX 0, 0, 296, 264
 STYLE DS_SETFONT | WS_CHILD
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -1678,6 +1696,7 @@ BEGIN
         MENUITEM "Capture",                     ID_VIEW_CAPTURE
         MENUITEM "Shader Editor",               ID_VIEW_SHADEREDITOR
         MENUITEM "Navigation",                  ID_VIEW_NAVIGATION
+        MENUITEM "KH Radio",                    ID_VIEW_KHRADIO
         POPUP "&Presets..."
         BEGIN
             MENUITEM "&Minimal",                    ID_VIEW_PRESETS_MINIMAL
@@ -2474,6 +2493,8 @@ BEGIN
     IDS_DVD_FAV_ADDED       "DVD added to favorites"
     IDS_CAPTURE_SETTINGS    "Capture Settings"
     IDS_NAVIGATION_BAR      "Navigation Bar"
+    IDS_KHRADIO_BAR         "KH Radio"
+    IDS_KHRADIO_LOCAL_DISABLED "KH Radio edition: local playback is disabled"
     IDS_SHADER_EDITOR       "Shader Editor"
     IDS_SUBRESYNC_CAPTION   "Subresync"
     IDS_SUBRESYNC_CLN_TIME  "Time"

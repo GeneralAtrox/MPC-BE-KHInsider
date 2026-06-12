@@ -293,6 +293,7 @@
 #define ID_START                        1007
 #define ID_SAVE                         1008
 #define ID_VIEW_NAVIGATION              1009
+#define ID_VIEW_KHRADIO                 1010
 #define ID_SHIFT_SUB_DOWN               1012
 #define ID_SHIFT_SUB_UP                 1013
 #define ID_GOTO_PREV_SUB                1014
@@ -584,6 +585,7 @@
 #define IDD_NAVIGATION                  10027
 #define IDD_TUNER_SCAN                  10028
 #define IDD_NAVIGATION_DLG              10029
+#define IDD_KHRADIO_DLG                 10127
 #define IDD_UPDATE_DIALOG               10030
 #define IDD_ITEMPROPERTIES_DIALOG       10031
 #define IDD_SHADERNEW_DLG               10032
@@ -959,6 +961,17 @@
 #define IDC_D3D9DEVICE_COMBO            22045
 #define IDC_NAVIGATION_INFO             22046
 #define IDC_NAVIGATION_FILTERSTATIONS   22048
+#define IDC_KHRADIO_TYPE_LIST           22100
+#define IDC_KHRADIO_YEAR_LIST           22101
+#define IDC_KHRADIO_PLATFORM_LIST       22102
+#define IDC_KHRADIO_RANDOM_BUTTON       22103
+#define IDC_KHRADIO_AVOID_CHECK         22104
+#define IDC_KHRADIO_STATUS              22105
+#define IDC_KHRADIO_HISTORY_LIST        22106
+#define IDC_KHRADIO_TYPE_LABEL          22107
+#define IDC_KHRADIO_YEAR_LABEL          22108
+#define IDC_KHRADIO_PLATFORM_LABEL      22109
+#define IDC_KHRADIO_HISTORY_LABEL       22110
 #define IDC_STATIC_CLRFACE              22049
 #define IDC_STATIC_CLROUTLINE           22050
 #define IDC_BUTTON_CLRFACE              22051
@@ -1806,6 +1819,8 @@
 #define IDS_AG_WINDOW_TO_PRIMARYSCREEN  44102
 #define IDS_EXTERNAL                    44103
 #define IDS_SUB_SAVE_EXTERNAL_STYLE_FILE 44104
+#define IDS_KHRADIO_BAR                 44120
+#define IDS_KHRADIO_LOCAL_DISABLED      44121
 
 // Next default values for new objects
 //

@@ -3066,16 +3066,8 @@ BOOL CPlayerPlaylistBar::OnPlayPlay(UINT nID)
 
 void CPlayerPlaylistBar::DropFiles(std::list<CString>& slFiles)
 {
-	if (GetCurTab().type == PL_EXPLORER) {
-		return;
-	}
-
-	SetForegroundWindow();
-	m_list.SetFocus();
-
-	m_pMainFrame->ParseDirs(slFiles);
-
-	Append(slFiles, true);
+	// KH Radio edition: dropping media onto the playlist is blocked
+	m_pMainFrame->DenyLocalPlayback();
 }
 
 void CPlayerPlaylistBar::OnBeginDrag(NMHDR* pNMHDR, LRESULT* pResult)
@@ -3598,6 +3590,10 @@ void CPlayerPlaylistBar::OnContextMenu(CWnd* /*pWnd*/, CPoint p)
 			}
 			break;
 		case M_ADD:
+			// KH Radio edition: adding media to the playlist by hand is blocked
+			if (m_pMainFrame->DenyLocalPlayback()) {
+				break;
+			}
 			if (curTab.type == PL_BASIC) {
 				if (m_pMainFrame->GetPlaybackMode() == PM_CAPTURE) {
 					m_pMainFrame->AddCurDevToPlaylist();

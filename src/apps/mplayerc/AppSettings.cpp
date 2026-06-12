@@ -452,6 +452,12 @@ void CAppSettings::ResetSettings()
 	fHideNavigation = false;
 	nCS = CS_SEEKBAR | CS_TOOLBAR | CS_STATUSBAR;
 
+	bShowKHRadioBar = true;
+	bKHRadioAvoidPlayed = true;
+	strKHRadioTypes.Empty();
+	strKHRadioYears.Empty();
+	strKHRadioPlatforms.Empty();
+
 	iDefaultVideoSize = DVS_FROMINSIDE;
 	bNoSmallUpscale = false;
 	bNoSmallDownscale = false;
@@ -853,6 +859,12 @@ void CAppSettings::LoadSettings(bool bForce/* = false*/)
 	profile.ReadInt(IDS_R_SETTINGS, IDS_RS_HIDECAPTIONMENU, iCaptionMenuMode, MODE_SHOWCAPTIONMENU, MODE_BORDERLESS);
 	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_HIDENAVIGATION, fHideNavigation);
 	profile.ReadUInt(IDS_R_SETTINGS, IDS_RS_CONTROLSTATE, nCS);
+
+	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_SHOWBAR, bShowKHRadioBar);
+	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_AVOIDPLAYED, bKHRadioAvoidPlayed);
+	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_TYPES, strKHRadioTypes);
+	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_YEARS, strKHRadioYears);
+	profile.ReadString(IDS_R_SETTINGS, IDS_RS_KHRADIO_PLATFORMS, strKHRadioPlatforms);
 
 	profile.ReadInt(IDS_R_SETTINGS, IDS_RS_DEFAULTVIDEOFRAME, iDefaultVideoSize, DVS_HALF, DVS_ZOOM2);
 	profile.ReadBool(IDS_R_SETTINGS, IDS_RS_NOSMALLUPSCALE, bNoSmallUpscale);
@@ -1580,6 +1592,12 @@ void CAppSettings::SaveSettings()
 	profile.WriteInt(IDS_R_SETTINGS, IDS_RS_HIDECAPTIONMENU, iCaptionMenuMode);
 	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_HIDENAVIGATION, fHideNavigation);
 	profile.WriteUInt(IDS_R_SETTINGS, IDS_RS_CONTROLSTATE, nCS);
+
+	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_SHOWBAR, bShowKHRadioBar);
+	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_KHRADIO_AVOIDPLAYED, bKHRadioAvoidPlayed);
+	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_TYPES, strKHRadioTypes);
+	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_YEARS, strKHRadioYears);
+	profile.WriteString(IDS_R_SETTINGS, IDS_RS_KHRADIO_PLATFORMS, strKHRadioPlatforms);
 
 	profile.WriteInt(IDS_R_SETTINGS, IDS_RS_DEFAULTVIDEOFRAME, iDefaultVideoSize);
 	profile.WriteBool(IDS_R_SETTINGS, IDS_RS_NOSMALLUPSCALE, bNoSmallUpscale);
@@ -2393,6 +2411,11 @@ void CAppSettings::ParseCommandLine(cmdLine& cmdln)
 			slFiles.emplace_back(ParseFileName(param));
 		}
 	}
+
+	// KH Radio edition: media passed on the command line is never opened
+	slFiles.clear();
+	slDubs.clear();
+	slSubs.clear();
 }
 
 CDVBChannel* CAppSettings::FindChannelByPref(int nPrefNumber)

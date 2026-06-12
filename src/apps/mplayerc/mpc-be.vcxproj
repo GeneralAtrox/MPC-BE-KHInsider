@@ -142,6 +142,7 @@
     <ClCompile Include="GoToDlg.cpp" />
     <ClCompile Include="Ifo.cpp" />
     <ClCompile Include="KeyProvider.cpp" />
+    <ClCompile Include="KHInsider.cpp" />
     <ClCompile Include="LcdSupport.cpp" />
     <ClCompile Include="MainFrm.cpp" />
     <ClCompile Include="MediaFormats.cpp" />
@@ -156,6 +157,7 @@
     <ClCompile Include="PlayerChildView.cpp" />
     <ClCompile Include="PlayerPreView.cpp" />
     <ClCompile Include="PlayerInfoBar.cpp" />
+    <ClCompile Include="PlayerKHRadioBar.cpp" />
     <ClCompile Include="PlayerListCtrl.cpp" />
     <ClCompile Include="PlayerNavigationBar.cpp" />
     <ClCompile Include="PlayerPlaylistBar.cpp" />
@@ -278,6 +280,7 @@
     <ClInclude Include="GoToDlg.h" />
     <ClInclude Include="Ifo.h" />
     <ClInclude Include="KeyProvider.h" />
+    <ClInclude Include="KHInsider.h" />
     <ClInclude Include="LcdSupport.h" />
     <ClInclude Include="MainFrm.h" />
     <ClInclude Include="MediaFormats.h" />
@@ -293,6 +296,7 @@
     <ClInclude Include="PlayerChildView.h" />
     <ClInclude Include="PlayerPreView.h" />
     <ClInclude Include="PlayerInfoBar.h" />
+    <ClInclude Include="PlayerKHRadioBar.h" />
     <ClInclude Include="PlayerListCtrl.h" />
     <ClInclude Include="PlayerNavigationBar.h" />
     <ClInclude Include="PlayerPlaylistBar.h" />

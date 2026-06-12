@@ -1,0 +1,85 @@
+/*
+ * (C) 2026 MPC-BE KH Radio edition
+ *
+ * This file is part of MPC-BE.
+ *
+ * MPC-BE is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MPC-BE is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#pragma once
+
+#include <vector>
+
+// Scraper for downloads.khinsider.com used by the KH Radio bar.
+namespace KHInsider
+{
+	struct Track {
+		CStringW name;    // display name
+		CStringW pageUrl; // track page on downloads.khinsider.com
+	};
+
+	struct Album {
+		CStringW url;     // album page URL
+		CStringW title;
+		std::vector<Track> tracks;
+	};
+
+	// POST body for the random-album-advanced form. Each list holds the numeric
+	// option values of the site's form ("type[]", "year[]", "category[]").
+	CStringA BuildRandomAlbumForm(const std::vector<int>& types, const std::vector<int>& years, const std::vector<int>& platforms);
+
+	// POST the random-album-advanced form; fills 'album' with title and track pages.
+	bool FetchRandomAlbum(const CStringA& formBody, Album& album);
+
+	// GET an album page directly (used when replaying an album from history).
+	bool FetchAlbum(const CStringW& albumUrl, Album& album);
+
+	// GET a track page and extract the direct audio URL (mp3 preferred).
+	// Returns an empty string on failure.
+	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl);
+
+	CStringW DecodeHtmlEntities(CStringW str);
+}
+
+// Persistent record of every album/track that has been listened to.
+// Stored as khradio_history.json next to the player settings.
+class CKHRadioHistory
+{
+public:
+	struct TrackEntry {
+		CStringW name;
+		int plays = 0;
+	};
+
+	struct AlbumEntry {
+		CStringW url;
+		CStringW title;
+		std::vector<TrackEntry> tracks;
+	};
+
+	void Load();
+	void Save() const;
+
+	bool ContainsAlbum(const CStringW& albumUrl) const;
+	void RecordTrack(const CStringW& albumUrl, const CStringW& albumTitle, const CStringW& trackName);
+
+	// most recently listened first
+	const std::vector<AlbumEntry>& Albums() const { return m_albums; }
+
+private:
+	CStringW GetPath() const;
+
+	std::vector<AlbumEntry> m_albums;
+};

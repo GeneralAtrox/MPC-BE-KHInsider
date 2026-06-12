@@ -477,6 +477,10 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_COMMAND(ID_VIEW_NAVIGATION, OnViewNavigation)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_NAVIGATION, OnUpdateViewNavigation)
 
+	// KH Radio panel
+	ON_COMMAND(ID_VIEW_KHRADIO, OnViewKHRadio)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_KHRADIO, OnUpdateViewKHRadio)
+
 	// Subtitle position
 	ON_COMMAND_RANGE(ID_SUB_POS_UP, ID_SUB_POS_RESTORE, OnSubtitlePos)
 
@@ -807,6 +811,11 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_wndNavigationBar.SetBarStyle(m_wndNavigationBar.GetBarStyle() | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC);
 	m_wndNavigationBar.EnableDocking(CBRS_ALIGN_LEFT|CBRS_ALIGN_RIGHT);
 	m_dockingbars.emplace_back(&m_wndNavigationBar);
+
+	m_wndKHRadioBar.Create(this, AFX_IDW_DOCKBAR_RIGHT);
+	m_wndKHRadioBar.SetBarStyle(m_wndKHRadioBar.GetBarStyle() | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC);
+	m_wndKHRadioBar.EnableDocking(CBRS_ALIGN_LEFT|CBRS_ALIGN_RIGHT);
+	m_dockingbars.emplace_back(&m_wndKHRadioBar);
 
 	m_wndShaderEditorBar.Create(this, AFX_IDW_DOCKBAR_TOP);
 	m_wndShaderEditorBar.SetBarStyle(m_wndShaderEditorBar.GetBarStyle() | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC);
@@ -4473,6 +4482,14 @@ void CMainFrame::OnFilePostOpenMedia(std::unique_ptr<OpenMediaData>& pOMD)
 
 	m_wndPlaylistBar.SetCurValid(true);
 
+	// KH Radio: record the track that just started playing
+	if (::IsWindow(m_wndKHRadioBar.m_dlg.m_hWnd)) {
+		CPlaylistItem pli;
+		if (m_wndPlaylistBar.GetCur(pli)) {
+			m_wndKHRadioBar.m_dlg.OnPlaybackStarted(pli.m_fi.GetPath());
+		}
+	}
+
 	if (m_youtubeFields.title.IsEmpty()) {
 		if (CComQIPtr<IBaseFilter> pBF = FindFilter(CLSID_3DYDYoutubeSource, m_pGB)) {
 			if (CComQIPtr<IAMMediaContent, &IID_IAMMediaContent> pAMMC = pBF.p) {
@@ -5327,8 +5344,18 @@ void CMainFrame::OnStreamVideo(UINT nID)
 
 // file
 
+bool CMainFrame::DenyLocalPlayback()
+{
+	SendStatusMessage(ResStr(IDS_KHRADIO_LOCAL_DISABLED), 3000);
+	return true;
+}
+
 void CMainFrame::OnFileOpenQuick()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	if (m_eMediaLoadState == MLS_LOADING || !IsWindow(m_wndPlaylistBar) || !CanShowDialog()) {
 		return;
 	}
@@ -5381,6 +5408,10 @@ void CMainFrame::OnFileOpenQuick()
 
 void CMainFrame::OnFileOpenMedia()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	if (m_eMediaLoadState == MLS_LOADING || !CanShowDialog()) {
 		return;
 	}
@@ -5788,6 +5819,10 @@ BOOL CMainFrame::OnCopyData(CWnd* pWnd, COPYDATASTRUCT* pCDS)
 
 void CMainFrame::OnFileOpenDVD()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	if (m_eMediaLoadState == MLS_LOADING || !CanShowDialog()) {
 		return;
 	}
@@ -5837,6 +5872,10 @@ void CMainFrame::OnFileOpenDVD()
 
 void CMainFrame::OnFileOpenIso()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	if (m_eMediaLoadState == MLS_LOADING || !CanShowDialog()) {
 		return;
 	}
@@ -5858,6 +5897,10 @@ void CMainFrame::OnFileOpenIso()
 
 void CMainFrame::OnFileOpenDevice()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	CAppSettings& s = AfxGetAppSettings();
 
 	if (m_eMediaLoadState == MLS_LOADING) {
@@ -5901,6 +5944,10 @@ void CMainFrame::OnFileOpenDevice()
 
 void CMainFrame::OnFileOpenCD(UINT nID)
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	nID -= ID_FILE_OPEN_CD_START;
 
 	nID++;
@@ -5946,6 +5993,10 @@ void CMainFrame::OnFileReOpen()
 void CMainFrame::DropFiles(std::list<CString>& slFiles)
 {
 	SetForegroundWindow();
+
+	if (DenyLocalPlayback()) {
+		return;
+	}
 
 	if (slFiles.empty()) {
 		return;
@@ -7496,6 +7547,19 @@ void CMainFrame::OnUpdateViewNavigation(CCmdUI* pCmdUI)
 	pCmdUI->Enable(m_eMediaLoadState == MLS_LOADED && GetPlaybackMode() == PM_CAPTURE && s.iDefaultCaptureDevice == 1);
 }
 
+void CMainFrame::OnViewKHRadio()
+{
+	CAppSettings& s = AfxGetAppSettings();
+	s.bShowKHRadioBar = !m_wndKHRadioBar.IsWindowVisible();
+	ShowControlBarInternal(&m_wndKHRadioBar, s.bShowKHRadioBar);
+}
+
+void CMainFrame::OnUpdateViewKHRadio(CCmdUI* pCmdUI)
+{
+	pCmdUI->SetCheck(m_wndKHRadioBar.IsWindowVisible());
+	pCmdUI->Enable(TRUE);
+}
+
 void CMainFrame::OnViewCapture()
 {
 	ShowControlBarInternal(&m_wndCaptureBar, !m_wndCaptureBar.IsWindowVisible());
@@ -7906,7 +7970,7 @@ void CMainFrame::OnViewRotate(UINT nID)
 			}
 
 			CString info;
-			info.Format(L"Rotation: %d°", rotation);
+			info.Format(L"Rotation: %dï¿½", rotation);
 			SendStatusMessage(info, 3000);
 		}
 	}
@@ -10474,6 +10538,10 @@ void CMainFrame::PlayFavoriteFile(SessionInfo fav) // use a copy of SessionInfo
 
 void CMainFrame::OnRecentFile(UINT nID)
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	nID -= ID_RECENT_FILE_START;
 
 	if (nID < m_RecentPaths.size() && m_RecentPaths[nID].GetLength()) {
@@ -18985,6 +19053,10 @@ void CMainFrame::JumpOfNSeconds(int nSeconds)
 
 void CMainFrame::OnFileOpenDirectory()
 {
+	if (DenyLocalPlayback()) {
+		return;
+	}
+
 	if (m_eMediaLoadState == MLS_LOADING || !IsWindow(m_wndPlaylistBar)) {
 		return;
 	}

@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -184,6 +184,12 @@
       <Filter>Panels</Filter>
     </ClCompile>
     <ClCompile Include="PlayerNavigationBar.cpp">
+      <Filter>Panels</Filter>
+    </ClCompile>
+    <ClCompile Include="PlayerKHRadioBar.cpp">
+      <Filter>Panels</Filter>
+    </ClCompile>
+    <ClCompile Include="KHInsider.cpp">
       <Filter>Panels</Filter>
     </ClCompile>
     <ClCompile Include="PlayerPlaylistBar.cpp">
@@ -651,6 +657,12 @@
       <Filter>Panels</Filter>
     </ClInclude>
     <ClInclude Include="PlayerNavigationBar.h">
+      <Filter>Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerKHRadioBar.h">
+      <Filter>Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="KHInsider.h">
       <Filter>Panels</Filter>
     </ClInclude>
     <ClInclude Include="PlayerPlaylistBar.h">

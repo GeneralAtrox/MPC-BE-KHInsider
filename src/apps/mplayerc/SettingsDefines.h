@@ -123,7 +123,7 @@
 #define IDS_RS_WEBSERVERCGI					L"CGIHandlers"
 #define IDS_RS_WEBDEFINDEX					L"DefaultPage"
 
-// ÎnlineServices
+// ï¿½nlineServices
 #define IDS_R_ONLINESERVICES				L"OnlineServices"
 #define IDS_R_YOUTUBECACHE					L"OnlineServices\\YoutubeCache"
 #define IDS_RS_YOUTUBE_LOAD_PLAYLIST		L"YoutubeLoadPlaylist"
@@ -252,6 +252,11 @@
 
 #define IDS_RS_HIDECAPTIONMENU				L"HideCaptionMenu"
 #define IDS_RS_HIDENAVIGATION				L"HideNavigation"
+#define IDS_RS_KHRADIO_SHOWBAR				L"KHRadioShowBar"
+#define IDS_RS_KHRADIO_AVOIDPLAYED			L"KHRadioAvoidPlayed"
+#define IDS_RS_KHRADIO_TYPES				L"KHRadioTypes"
+#define IDS_RS_KHRADIO_YEARS				L"KHRadioYears"
+#define IDS_RS_KHRADIO_PLATFORMS			L"KHRadioPlatforms"
 #define IDS_RS_DEFAULTVIDEOFRAME			L"DefaultVideoFrame"
 #define IDS_RS_NOSMALLUPSCALE				L"NoSmallUpscale"
 #define IDS_RS_NOSMALLDOWNSCALE				L"NoSmallDownscale"

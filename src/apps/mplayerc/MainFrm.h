@@ -33,6 +33,7 @@
 #include "PlayerPlaylistBar.h"
 #include "PlayerCaptureBar.h"
 #include "PlayerNavigationBar.h"
+#include "PlayerKHRadioBar.h"
 #include "PlayerShaderEditorBar.h"
 #include "PPageSheet.h"
 #include "PPageFileInfoSheet.h"
@@ -673,6 +674,9 @@ private:
 	touchScreen m_touchScreen;
 
 public:
+	// KH Radio edition: all user-initiated media opens are blocked
+	bool DenyLocalPlayback();
+
 	BOOL OpenCurPlaylistItem(REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);
 	BOOL OpenFile(const CString fname, REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);
 	void OpenMedia(std::unique_ptr<OpenMediaData> pOMD);
@@ -797,6 +801,7 @@ private: // control bar embedded members
 	CPlayerSubresyncBar m_wndSubresyncBar;
 	CPlayerCaptureBar m_wndCaptureBar;
 	CPlayerNavigationBar m_wndNavigationBar;
+	CKHRadioBar m_wndKHRadioBar;
 	CPlayerShaderEditorBar m_wndShaderEditorBar;
 	std::vector<CSizingControlBar*> m_dockingbars;
 
@@ -973,8 +978,10 @@ public:
 
 	afx_msg void OnViewCaptionmenu();
 	afx_msg void OnViewNavigation();
+	afx_msg void OnViewKHRadio();
 	afx_msg void OnUpdateViewCaptionmenu(CCmdUI* pCmdUI);
 	afx_msg void OnUpdateViewNavigation(CCmdUI* pCmdUI);
+	afx_msg void OnUpdateViewKHRadio(CCmdUI* pCmdUI);
 	afx_msg void OnViewControlBar(UINT nID);
 	afx_msg void OnUpdateViewControlBar(CCmdUI* pCmdUI);
 	afx_msg void OnViewSubresync();
