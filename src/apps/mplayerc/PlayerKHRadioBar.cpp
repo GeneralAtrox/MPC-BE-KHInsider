@@ -27,9 +27,11 @@
 // declared here instead of including coolscroll.h, which defines a global
 // variable and may only be included from one translation unit
 typedef COLORREF (*ptr_themeRGB)(const int, const int, const int);
+#define CSBS_HOTTRACKED 2
 extern "C" {
 	BOOL WINAPI InitializeCoolSB(HWND hwnd, ptr_themeRGB ThemeRGB);
 	BOOL WINAPI CoolSB_SetSize(HWND hwnd, int wBar, int nLength, int nWidth);
+	BOOL WINAPI CoolSB_SetStyle(HWND hwnd, int wBar, UINT nStyle);
 }
 
 // option tables mirroring https://downloads.khinsider.com/random-album-advanced
@@ -241,8 +243,10 @@ BOOL CKHRadioDlg::OnInitDialog()
 			pList->ModifyStyle(WS_BORDER, 0);
 			pList->SetWindowPos(nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 			InitializeCoolSB(pList->m_hWnd, ThemeRGB);
-			// without an explicit size the up/down arrow buttons keep the light
-			// Windows look on Win8+
+			// flat/hot-tracked style is what makes CoolSB draw the dark themed
+			// arrows; without it the up/down buttons fall back to light Windows
+			// rendering
+			CoolSB_SetStyle(pList->m_hWnd, SB_VERT, CSBS_HOTTRACKED);
 			if (pFrame && SysVersion::IsWin8orLater()) {
 				CoolSB_SetSize(pList->m_hWnd, SB_VERT, pFrame->GetSystemMetricsDPI(SM_CYVSCROLL), pFrame->GetSystemMetricsDPI(SM_CXVSCROLL));
 			}
@@ -776,12 +780,12 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 
 	auto pFrame = AfxGetMainFrame();
 
-	// show this album's cover in place of the audio logo (once per album)
+	// show this album's cover in place of the audio logo (once per album).
+	// The frame keeps the file and loads it from SetAudioPicture(), so we
+	// must not delete it here.
 	if (pFrame && track.albumUrl != m_coverAlbumUrl && !track.coverPath.IsEmpty()) {
-		if (pFrame->SetRadioAlbumCover(track.coverPath)) {
-			m_coverAlbumUrl = track.albumUrl;
-		}
-		::DeleteFileW(track.coverPath); // loaded into memory, no longer needed
+		pFrame->SetRadioAlbumCover(track.coverPath);
+		m_coverAlbumUrl = track.albumUrl;
 	}
 
 	// continuous radio: when the last queued track starts, roll the next
@@ -797,6 +801,14 @@ IMPLEMENT_DYNAMIC(CKHRadioBar, CPlayerBar)
 
 CKHRadioBar::CKHRadioBar()
 {
+	// draw the bar's frame/gripper with the dark palette instead of the
+	// light system colours (otherwise the dock shows a white border)
+	m_bUseDarkTheme = !!AfxGetAppSettings().bUseDarkTheme;
+}
+
+COLORREF CKHRadioBar::ColorThemeRGB(const int iR, const int iG, const int iB) const
+{
+	return ThemeRGB(iR, iG, iB);
 }
 
 CKHRadioBar::~CKHRadioBar()

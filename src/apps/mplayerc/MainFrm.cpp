@@ -19962,6 +19962,14 @@ HRESULT CMainFrame::SetAudioPicture(BOOL show)
 			}
 		}
 
+		if (!bLoadRes && !m_strRadioCoverPath.IsEmpty() && ::PathFileExistsW(m_strRadioCoverPath)) {
+			// KH Radio: use the downloaded album cover as the now-playing picture
+			hr = WicLoadImage(&m_pMainBitmap, true, m_strRadioCoverPath.GetString());
+			if (SUCCEEDED(hr)) {
+				bLoadRes = true;
+			}
+		}
+
 		if (!bLoadRes) {
 			BYTE* data;
 			UINT size;

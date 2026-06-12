@@ -149,6 +149,7 @@ public:
 
 	BOOL Create(CWnd* pParentWnd, UINT defDockBarID);
 	virtual void ReloadTranslatableResources();
+	virtual COLORREF ColorThemeRGB(const int iR, const int iG, const int iB) const;
 
 	CKHRadioDlg m_dlg;
 
