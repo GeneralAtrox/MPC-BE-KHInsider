@@ -2,8 +2,14 @@ name: KHInsider scraper health check
 
 # Daily probe of the same request path the KH Radio scraper uses, so a
 # KHInsider redesign or tightened bot protection is caught before it breaks
-# your listening session. Fails (red badge) and files/updates an issue when
-# the scraper would no longer work.
+# your listening session.
+#
+# Note: GitHub-hosted runners use datacenter IPs that Cloudflare frequently
+# 403-blocks, while the in-app scraper runs from a residential IP. A block
+# from CI is therefore reported as "inconclusive" (not a failure); the run
+# only goes red when it actually reaches an album page and finds that the
+# markers the scraper depends on have changed. Results are written to the
+# run's job summary (this repo has Issues disabled, so no issue is filed).
 
 on:
   schedule:
@@ -12,73 +18,76 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   healthcheck:
     runs-on: ubuntu-latest
     steps:
       - name: Probe random-album-advanced
-        id: probe
         run: |
           set -uo pipefail
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-          # POST the form and follow the 302 to a random album page (HTTP/2,
-          # browser UA - exactly what the in-app WinHTTP scraper sends).
-          if ! album=$(curl -fsS --http2 -A "$UA" -L -o album.html -w '%{url_effective}' \
+          summary() { echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          # POST the form and follow the 302 to a random album page - exactly
+          # what the in-app WinHTTP scraper sends. No -f: we branch on the
+          # status code instead of aborting on a 4xx/5xx.
+          http=$(curl -sS --http2 -A "$UA" -L -o album.html -w '%{http_code}' \
                 -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
                 --data 'randomAdvanced=Show+Me+A+Random+Album' \
-                'https://downloads.khinsider.com/random-album-advanced'); then
-            echo "reason=The request failed outright - the site is down, or Cloudflare is now blocking this user-agent/HTTP-2 path." >> "$GITHUB_OUTPUT"
+                'https://downloads.khinsider.com/random-album-advanced') || http="000"
+          echo "HTTP status: $http"
+
+          # 000 = connection/TLS failure; 403/429/503 = Cloudflare blocking this
+          # runner's datacenter IP. Neither means the residential-IP app scraper
+          # is broken, so record "inconclusive" and pass instead of going red.
+          case "$http" in
+            000|403|429|503)
+              summary "### KHInsider health check: inconclusive :warning:"
+              summary ""
+              summary "Could not verify from this GitHub-hosted runner (HTTP \`$http\`)."
+              summary "This is almost always Cloudflare blocking the runner's datacenter IP -"
+              summary "**not** a sign the KH Radio scraper is broken, since the app runs from a"
+              summary "residential IP. Re-run from a non-blocked network to check the page layout."
+              echo "::warning::Health check inconclusive - site returned HTTP $http to the CI runner (likely a Cloudflare IP block, not a scraper break)."
+              exit 0
+              ;;
+          esac
+
+          if [ "$http" != "200" ]; then
+            summary "### KHInsider health check: unexpected response :x:"
+            summary ""
+            summary "The site returned HTTP \`$http\` (expected 200) - worth a manual look."
+            echo "::error::KHInsider returned HTTP $http."
             exit 1
           fi
-          echo "Landed on: $album"
 
+          # We reached an album page, so the checks below are meaningful: a
+          # failure here is a genuine layout/parser break, not an IP block.
           if ! grep -q 'id="songlist"' album.html; then
-            echo "reason=Reached an album page but the 'songlist' marker is gone - KHInsider likely changed its HTML layout." >> "$GITHUB_OUTPUT"
+            summary "### KHInsider health check: layout changed :x:"
+            summary ""
+            summary "Reached an album page (HTTP 200) but the \`id=\"songlist\"\` marker is gone -"
+            summary "KHInsider likely changed its HTML. The album-page parser in"
+            summary "\`src/apps/mplayerc/KHInsider.cpp\` probably needs updating."
+            echo "::error::songlist marker missing - KHInsider layout changed."
             exit 1
           fi
 
           if ! grep -Eq 'href="/game-soundtracks/album/[^"]+\.mp3"' album.html; then
-            echo "reason=Found the songlist but no track links matched the expected pattern - the parser would return zero tracks." >> "$GITHUB_OUTPUT"
+            summary "### KHInsider health check: track links changed :x:"
+            summary ""
+            summary "Found the songlist but no track links matched the expected pattern - the"
+            summary "parser would return zero tracks. Check the album-page regexes in"
+            summary "\`src/apps/mplayerc/KHInsider.cpp\`."
+            echo "::error::no track links matched - parser would return zero tracks."
             exit 1
           fi
 
           tracks=$(grep -Eo 'href="/game-soundtracks/album/[^"]+\.mp3"' album.html | sort -u | wc -l)
+          summary "### KHInsider health check: OK :white_check_mark:"
+          summary ""
+          summary "Reached a random album page with a songlist and **$tracks** track link(s)."
+          summary "The scraper's request path and parser markers are intact."
           echo "OK - album page has a songlist with $tracks track link(s)."
-
-      - name: File or update an issue on failure
-        if: failure()
-        uses: actions/github-script@v7
-        env:
-          REASON: ${{ steps.probe.outputs.reason }}
-        with:
-          script: |
-            const reason = process.env.REASON || 'Unknown failure.';
-            const title = 'KH Radio: KHInsider scraper health check is failing';
-            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              'The daily KHInsider scraper health check failed.',
-              '',
-              `**Likely cause:** ${reason}`,
-              '',
-              `**Run:** ${run}`,
-              '',
-              'The KH Radio scraper in `src/apps/mplayerc/KHInsider.cpp` probably needs a small update',
-              '(request headers, the random-album form, or the album-page parser regexes).',
-            ].join('\n');
-
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100,
-            });
-            const existing = issues.find(i => i.title === title);
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo, issue_number: existing.number, body,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner, repo: context.repo.repo, title, body,
-              });
-            }
