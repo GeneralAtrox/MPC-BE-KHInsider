@@ -3129,6 +3129,9 @@ bool CMainFrame::GraphEventComplete()
 				NextMediaExist = SearchInDir(true);
 			}
 			if (!s.fNextInDirAfterPlayback || !(NextMediaExist > 1)) {
+				if (::IsWindow(m_wndKHRadioBar.m_dlg.m_hWnd) && m_wndKHRadioBar.m_dlg.ContinueRadioAtEnd()) {
+					return false; // KH Radio is fetching the next album; don't stop
+				}
 				m_bEndOfStream = true;
 				if (s.fRewind) {
 					SendMessageW(WM_COMMAND, ID_PLAY_STOP);
@@ -3158,6 +3161,8 @@ bool CMainFrame::GraphEventComplete()
 			int nLoops = m_nLoops;
 			SendMessageW(WM_COMMAND, ID_NAVIGATE_SKIPFORWARD);
 			m_nLoops = nLoops;
+		} else if (::IsWindow(m_wndKHRadioBar.m_dlg.m_hWnd) && m_wndKHRadioBar.m_dlg.ContinueRadioAtEnd()) {
+			return false; // KH Radio is fetching the next album; don't stop
 		} else {
 			m_bEndOfStream = true;
 			if (s.fRewind) {

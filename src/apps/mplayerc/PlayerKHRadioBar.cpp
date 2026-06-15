@@ -570,7 +570,12 @@ void CKHRadioDlg::MaybePrefetchNext()
 {
 	// keep KHRADIO_QUEUE_DEPTH albums in the playlist so the next one is ready
 	// well before the current album ends. Only one fetch runs at a time.
-	if (m_bRadioActive && !m_bFetching && m_queuedAlbumCount < KHRADIO_QUEUE_DEPTH) {
+	const bool go = m_bRadioActive && !m_bFetching && m_queuedAlbumCount < KHRADIO_QUEUE_DEPTH;
+	CStringW lg;
+	lg.Format(L"prefetch-check: active=%d fetching=%d queued=%d -> %s",
+			  m_bRadioActive ? 1 : 0, m_bFetching ? 1 : 0, m_queuedAlbumCount, go ? L"FETCH" : L"skip");
+	KHInsider::DebugLog(lg);
+	if (go) {
 		StartFetch(false, L"", true);
 	}
 }
@@ -859,8 +864,14 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 			m_bRadioActive = true;
 			m_queuedAlbumCount = 1;
 		}
+		CStringW lg;
+		lg.Format(L"done: append=%d resolved=%d -> queued=%d active=%d",
+				  m->bAppend ? 1 : 0, m->resolved, m_queuedAlbumCount, m_bRadioActive ? 1 : 0);
+		KHInsider::DebugLog(lg);
 		// top the queue up if we're still short
 		MaybePrefetchNext();
+	} else {
+		KHInsider::DebugLog(L"done: fetch produced no tracks (resolved=0)");
 	}
 
 	if (!m->text.IsEmpty()) {
@@ -910,8 +921,29 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 		if (!bFirstAlbum && m_queuedAlbumCount > 0) {
 			m_queuedAlbumCount--;
 		}
+		CStringW lg;
+		lg.Format(L"radio: now playing album '%s' (first=%d), queued=%d", track.albumTitle.GetString(), bFirstAlbum ? 1 : 0, m_queuedAlbumCount);
+		KHInsider::DebugLog(lg);
 		MaybePrefetchNext();
 	}
+}
+
+bool CKHRadioDlg::ContinueRadioAtEnd()
+{
+	if (!m_bRadioActive) {
+		return false; // not a radio session - let the player stop normally
+	}
+
+	// The playlist ran dry (the prefetched album wasn't ready in time, or a
+	// fetch failed). Make sure a fetch is running; its tracks will jump-start
+	// playback on arrival. Either way, tell the frame not to stop.
+	KHInsider::DebugLog(L"radio: playlist reached end while active - continuing");
+	if (!m_bFetching) {
+		m_queuedAlbumCount = 0;
+		m_currentPlayingAlbum.Empty();
+		StartFetch(false, L"", false); // fresh album, plays when it arrives
+	}
+	return true;
 }
 
 // CKHRadioBar

@@ -62,6 +62,10 @@ public:
 	// called from CMainFrame when a new item starts playing
 	void OnPlaybackStarted(const CStringW& path);
 
+	// called from CMainFrame when the playlist reaches its end; returns true if
+	// the radio is taking over (fetching the next album) instead of stopping.
+	bool ContinueRadioAtEnd();
+
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
