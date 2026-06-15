@@ -926,6 +926,16 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 		KHInsider::DebugLog(lg);
 		MaybePrefetchNext();
 	}
+
+	// Robustness against manual navigation: the queued-album count assumes
+	// sequential playback, so it can be wrong if the user skips around. Whenever
+	// the track that just started is the LAST one in the playlist (reached by
+	// normal advance OR a manual jump to the end), make sure the next album is
+	// being fetched so it gets appended before this track ends.
+	if (pFrame && m_bRadioActive && !m_bFetching && pFrame->m_wndPlaylistBar.IsAtEnd()) {
+		KHInsider::DebugLog(L"radio: on last track of playlist -> fetching next album");
+		StartFetch(false, L"", true);
+	}
 }
 
 bool CKHRadioDlg::ContinueRadioAtEnd()

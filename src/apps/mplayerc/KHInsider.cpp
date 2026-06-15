@@ -667,14 +667,14 @@ namespace KHInsider
 		};
 		const double modRatio = bandPower(3.0, 6.0) / (bandPower(1.0, 15.0) + 1e-9);
 
-		int score = 0;
-		if (modRatio > 0.32) score += 2;  // strong syllabic rhythm
-		if (pauseRatio > 0.18) score += 1; // gaps between phrases
-		if (zcrCoV > 0.65) score += 1;     // voiced/unvoiced alternation
-		const bool spoken = score >= 3;
+		// Speech needs ALL of: gaps between phrases (pauseRatio), ~4 Hz syllabic
+		// rhythm (modRatio) and voiced/unvoiced alternation (zcrCoV). Requiring
+		// the pause gate is what stops loud, gapless music (which can still have
+		// high modRatio/zcrCoV) from being misflagged as spoken.
+		const bool spoken = (pauseRatio > 0.18) && (modRatio > 0.32) && (zcrCoV > 0.50);
 
-		KHLog(L"audio check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f peak=%.3f score=%d -> %s",
-			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, maxE, score, spoken ? L"SPOKEN" : L"music");
+		KHLog(L"audio check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f peak=%.3f -> %s",
+			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, maxE, spoken ? L"SPOKEN" : L"music");
 
 		return spoken ? AudioVerdict::Spoken : AudioVerdict::Music;
 	}
