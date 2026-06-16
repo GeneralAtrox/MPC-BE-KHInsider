@@ -133,7 +133,8 @@ private:
 		CStringW name;
 		CStringW albumUrl;
 		CStringW albumTitle;
-		CStringW coverPath; // local cover image for this album, if downloaded
+		CStringW coverPath;  // local cover image for this album, if downloaded
+		CStringW platforms;  // console(s) the album is tagged with, for the status line
 	};
 	std::map<CStringW, TrackRef> m_audioUrlToTrack; // direct audio URL -> track info
 

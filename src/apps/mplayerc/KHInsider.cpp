@@ -648,7 +648,28 @@ namespace KHInsider
 			}
 		}
 
-		KHLog(L"parsed album: '%s', %u tracks, cover %s", album.title.GetString(), static_cast<unsigned>(album.tracks.size()),
+		// album platforms: the "Platforms: <a>Saturn</a>, <a>Arcade</a><br>" line in
+		// the page header (always "Platforms:" even for one). Surfaced in the UI so
+		// the console filter's effect is visible - albums are frequently tagged with
+		// several consoles. Distinct from the sidebar "Platforms" nav (it has no colon).
+		const size_t platPos = html.find("Platforms:");
+		if (platPos != std::string::npos) {
+			const size_t brPos = html.find("<br", platPos);
+			const std::string platLine = html.substr(platPos, brPos == std::string::npos ? 600 : brPos - platPos);
+			static const std::regex rePlatName(">([^<]+)</a>");
+			for (auto it = std::sregex_iterator(platLine.begin(), platLine.end(), rePlatName); it != std::sregex_iterator(); ++it) {
+				const CStringW n = Trimmed(DecodeHtmlEntities(UTF8ToWStr((*it)[1].str().c_str())));
+				if (!n.IsEmpty()) {
+					if (!album.platforms.IsEmpty()) {
+						album.platforms += L", ";
+					}
+					album.platforms += n;
+				}
+			}
+		}
+
+		KHLog(L"parsed album: '%s', %u tracks, platforms [%s], cover %s", album.title.GetString(), static_cast<unsigned>(album.tracks.size()),
+			  album.platforms.IsEmpty() ? L"(none)" : album.platforms.GetString(),
 			  album.coverUrl.IsEmpty() ? L"(none)" : album.coverUrl.GetString());
 
 		return !album.tracks.empty();

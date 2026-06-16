@@ -813,6 +813,9 @@ LRESULT CKHRadioDlg::OnKHRadioAlbum(WPARAM wParam, LPARAM lParam)
 	CStringW status;
 	status.Format(m->bAppend ? L"Up next: %s (%u tracks)" : L"Found: %s (%u tracks) - starting...",
 				  m_currentAlbum.title.GetString(), static_cast<unsigned>(m_currentAlbum.tracks.size()));
+	if (!m_currentAlbum.platforms.IsEmpty()) {
+		status.AppendFormat(L"\r\nPlatforms: %s", m_currentAlbum.platforms.GetString());
+	}
 	SetStatus(status);
 
 	return 0;
@@ -825,7 +828,7 @@ LRESULT CKHRadioDlg::OnKHRadioTrack(WPARAM wParam, LPARAM lParam)
 		return 0;
 	}
 
-	m_audioUrlToTrack[m->audioUrl] = { m->name, m_currentAlbum.url, m_currentAlbum.title, m->coverPath };
+	m_audioUrlToTrack[m->audioUrl] = { m->name, m_currentAlbum.url, m_currentAlbum.title, m->coverPath, m_currentAlbum.platforms };
 
 	CStringW label;
 	label.Format(L"%02d. %s", m->index + 1, m->name.GetString());
@@ -956,6 +959,9 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 
 	CStringW status;
 	status.Format(L"Now playing: %s - %s", track.albumTitle.GetString(), track.name.GetString());
+	if (!track.platforms.IsEmpty()) {
+		status.AppendFormat(L"\r\nPlatforms: %s", track.platforms.GetString());
+	}
 	SetStatus(status);
 
 	if (track.albumUrl != m_currentPlayingAlbum) {
