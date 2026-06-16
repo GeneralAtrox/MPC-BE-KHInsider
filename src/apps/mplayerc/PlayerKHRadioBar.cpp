@@ -132,6 +132,11 @@ static const KHOption s_khPlatforms[] = {
 // "Filter non-music tracks" drops tracks shorter than this (seconds)
 #define KHRADIO_MIN_TRACK_SEC 30
 
+// one-shot timer fired shortly after boot: if there's nothing to resume,
+// auto-start a fresh random album so the user never has to press the button.
+#define KHRADIO_AUTOSTART_TIMER 0xA1
+#define KHRADIO_AUTOSTART_DELAY 1500
+
 // worker -> UI message payloads
 
 struct KHRadioTextMsg {
@@ -203,6 +208,7 @@ BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_WM_DESTROY()
 	ON_WM_CTLCOLOR()
 	ON_WM_DRAWITEM()
+	ON_WM_TIMER()
 	ON_LBN_SELCHANGE(IDC_KHRADIO_TYPE_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_YEAR_LIST, OnSelChangeFilters)
 	ON_LBN_SELCHANGE(IDC_KHRADIO_PLATFORM_LIST, OnSelChangeFilters)
@@ -286,7 +292,39 @@ BOOL CKHRadioDlg::OnInitDialog()
 
 	SetStatus(L"Ready. Pick your filters and roll an album.");
 
+	// Radio-only player: once the app has settled, if there's nothing to resume
+	// (no restored playlist), kick off a fresh random album automatically so the
+	// user never has to press the button on boot.
+	SetTimer(KHRADIO_AUTOSTART_TIMER, KHRADIO_AUTOSTART_DELAY, nullptr);
+
 	return TRUE;
+}
+
+void CKHRadioDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == KHRADIO_AUTOSTART_TIMER) {
+		KillTimer(KHRADIO_AUTOSTART_TIMER); // one-shot
+
+		// If radio is already running (the restored playlist was adopted in
+		// OnPlaybackStarted) or a fetch is in flight, there's nothing to do.
+		if (m_bRadioActive || m_bFetching) {
+			return;
+		}
+
+		// If there's a restored playlist, let it play/resume - OnPlaybackStarted
+		// adopts it. Only auto-start a fresh album when the playlist is truly
+		// empty (e.g. first-ever launch) and the player is idle.
+		auto pFrame = AfxGetMainFrame();
+		if (pFrame
+				&& pFrame->GetLoadState() == MLS_CLOSED
+				&& pFrame->m_wndPlaylistBar.GetCount() == 0) {
+			KHInsider::DebugLog(L"radio: nothing to resume on boot -> auto-starting a random album");
+			StartFetch(false, L"", false);
+		}
+		return;
+	}
+
+	__super::OnTimer(nIDEvent);
 }
 
 HBRUSH CKHRadioDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
@@ -890,8 +928,25 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 
 void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 {
+	auto pFrame = AfxGetMainFrame();
+
 	const auto it = m_audioUrlToTrack.find(path);
 	if (it == m_audioUrlToTrack.end()) {
+		// Unknown track: this is the playlist MPC restored from the previous
+		// session. The URL->album map lives only in memory, so it's empty after
+		// a restart. Local playback is disabled, so whatever is playing here is a
+		// radio stream - adopt it as a live radio session. That way the queue
+		// keeps topping up and the "reached the end" triggers fire, instead of
+		// the player just stopping (which is why a fresh boot used to dead-end
+		// until you pressed "Show Me A Random Album").
+		if (!m_bRadioActive) {
+			m_bRadioActive = true;
+			KHInsider::DebugLog(L"radio: adopted restored playlist on startup -> active");
+		}
+		if (pFrame && !m_bFetching && pFrame->m_wndPlaylistBar.IsAtEnd()) {
+			KHInsider::DebugLog(L"radio: restored playlist on last track -> fetching next album");
+			StartFetch(false, L"", true);
+		}
 		return;
 	}
 
@@ -902,8 +957,6 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 	CStringW status;
 	status.Format(L"Now playing: %s - %s", track.albumTitle.GetString(), track.name.GetString());
 	SetStatus(status);
-
-	auto pFrame = AfxGetMainFrame();
 
 	if (track.albumUrl != m_currentPlayingAlbum) {
 		// a new album just started playing
