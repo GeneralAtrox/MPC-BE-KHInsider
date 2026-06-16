@@ -30,6 +30,7 @@
 #include <regex>
 #include <string>
 #include <cmath>
+#include <mutex>
 
 #include "rapidjsonHelper.h"
 #include "ExtLib/rapidjson/include/rapidjson/writer.h"
@@ -60,6 +61,12 @@
 #endif
 #ifndef WINHTTP_DISABLE_KEEP_ALIVE
 #define WINHTTP_DISABLE_KEEP_ALIVE 0x00000002
+#endif
+#ifndef LOAD_LIBRARY_SEARCH_APPLICATION_DIR
+#define LOAD_LIBRARY_SEARCH_APPLICATION_DIR 0x00000200
+#endif
+#ifndef LOAD_LIBRARY_SEARCH_SYSTEM32
+#define LOAD_LIBRARY_SEARCH_SYSTEM32 0x00000800
 #endif
 
 namespace KHInsider
@@ -95,12 +102,213 @@ namespace KHInsider
 		}
 	}
 
+	// ---- libcurl-impersonate: Cloudflare-resilient transport (optional) -------
+	//
+	// downloads.khinsider.com is fronted by Cloudflare, which fingerprints the
+	// TLS/HTTP2 handshake. WinHTTP's handshake is trusted on some networks but
+	// challenged on others (a 403 / "Just a moment..." JS page), which is why the
+	// same build streams fine on one PC and fails on another. curl-impersonate
+	// forges a real Chrome fingerprint and gets through where WinHTTP is blocked.
+	//
+	// libcurl-impersonate.dll (+ zlib.dll) ships next to the exe, is loaded
+	// lazily, and is entirely optional: if it is missing or fails to load we fall
+	// back to the WinHTTP path, so trusted networks and DLL-less dev builds keep
+	// working unchanged.
+
+	// curl option / info constants (ABI-stable; see curl/curl.h). Hand-declared
+	// so the build needs no curl include path.
+	enum {
+		KHCURLOPT_URL               = 10002,
+		KHCURLOPT_WRITEFUNCTION     = 20011,
+		KHCURLOPT_WRITEDATA         = 10001,
+		KHCURLOPT_POST              = 47,
+		KHCURLOPT_POSTFIELDS        = 10015,
+		KHCURLOPT_POSTFIELDSIZE     = 60,
+		KHCURLOPT_FOLLOWLOCATION    = 52,
+		KHCURLOPT_HTTPHEADER        = 10023,
+		KHCURLOPT_ACCEPT_ENCODING   = 10102,
+		KHCURLOPT_SSL_OPTIONS       = 216,
+		KHCURLOPT_TIMEOUT_MS        = 155,
+		KHCURLOPT_CONNECTTIMEOUT_MS = 156,
+		KHCURLOPT_NOSIGNAL          = 99,
+		KHCURLOPT_FRESH_CONNECT     = 74,
+		KHCURLINFO_EFFECTIVE_URL    = 1048577,
+		KHCURLINFO_RESPONSE_CODE    = 2097154,
+		KHCURLSSLOPT_NATIVE_CA      = 16,
+		KHCURL_GLOBAL_DEFAULT       = 3,
+	};
+
+	// curl-impersonate target: must be a CURRENT Chrome fingerprint. Cloudflare
+	// flags stale versions (chrome120/124 are already blocked), so when this
+	// starts failing, refresh libcurl-impersonate.dll and bump this string.
+#define KH_IMPERSONATE_TARGET "chrome146"
+	// Cloudflare challenges intermittently even with a perfect fingerprint, so
+	// retry a few times before giving up and falling back to WinHTTP.
+#define KH_CURL_ATTEMPTS 4
+
+	typedef void   CURLh;
+	typedef int    (*pfn_curl_global_init)(long);
+	typedef CURLh* (*pfn_curl_easy_init)(void);
+	typedef int    (*pfn_curl_easy_setopt)(CURLh*, int, ...);
+	typedef int    (*pfn_curl_easy_perform)(CURLh*);
+	typedef int    (*pfn_curl_easy_getinfo)(CURLh*, int, ...);
+	typedef void   (*pfn_curl_easy_cleanup)(CURLh*);
+	typedef int    (*pfn_curl_easy_impersonate)(CURLh*, const char*, int);
+	typedef struct curl_slist* (*pfn_curl_slist_append)(struct curl_slist*, const char*);
+	typedef void   (*pfn_curl_slist_free_all)(struct curl_slist*);
+
+	struct CurlApi {
+		HMODULE mod = nullptr;
+		bool ok = false;
+		pfn_curl_global_init      global_init = nullptr;
+		pfn_curl_easy_init        easy_init = nullptr;
+		pfn_curl_easy_setopt      easy_setopt = nullptr;
+		pfn_curl_easy_perform     easy_perform = nullptr;
+		pfn_curl_easy_getinfo     easy_getinfo = nullptr;
+		pfn_curl_easy_cleanup     easy_cleanup = nullptr;
+		pfn_curl_easy_impersonate easy_impersonate = nullptr;
+		pfn_curl_slist_append     slist_append = nullptr;
+		pfn_curl_slist_free_all   slist_free_all = nullptr;
+	};
+	static CurlApi g_curl;
+	static std::once_flag g_curlOnce;
+
+	static void LoadCurlOnce()
+	{
+		// Search the application directory (next to the exe) so the bundled DLL
+		// and its zlib.dll dependency resolve, plus System32 for OS imports.
+		HMODULE m = LoadLibraryExW(L"libcurl-impersonate.dll", nullptr,
+								   LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+		if (!m) {
+			KHLog(L"curl: libcurl-impersonate.dll not loaded (err %lu) - using WinHTTP", GetLastError());
+			return;
+		}
+		g_curl.global_init      = (pfn_curl_global_init)     GetProcAddress(m, "curl_global_init");
+		g_curl.easy_init        = (pfn_curl_easy_init)       GetProcAddress(m, "curl_easy_init");
+		g_curl.easy_setopt      = (pfn_curl_easy_setopt)     GetProcAddress(m, "curl_easy_setopt");
+		g_curl.easy_perform     = (pfn_curl_easy_perform)    GetProcAddress(m, "curl_easy_perform");
+		g_curl.easy_getinfo     = (pfn_curl_easy_getinfo)    GetProcAddress(m, "curl_easy_getinfo");
+		g_curl.easy_cleanup     = (pfn_curl_easy_cleanup)    GetProcAddress(m, "curl_easy_cleanup");
+		g_curl.easy_impersonate = (pfn_curl_easy_impersonate)GetProcAddress(m, "curl_easy_impersonate");
+		g_curl.slist_append     = (pfn_curl_slist_append)    GetProcAddress(m, "curl_slist_append");
+		g_curl.slist_free_all   = (pfn_curl_slist_free_all)  GetProcAddress(m, "curl_slist_free_all");
+
+		if (g_curl.global_init && g_curl.easy_init && g_curl.easy_setopt && g_curl.easy_perform
+				&& g_curl.easy_getinfo && g_curl.easy_cleanup && g_curl.easy_impersonate
+				&& g_curl.slist_append && g_curl.slist_free_all) {
+			g_curl.global_init(KHCURL_GLOBAL_DEFAULT);
+			g_curl.mod = m;
+			g_curl.ok = true;
+			KHLog(L"curl: libcurl-impersonate loaded (target %S)", KH_IMPERSONATE_TARGET);
+		} else {
+			FreeLibrary(m);
+			KHLog(L"curl: libcurl-impersonate.dll missing expected exports - using WinHTTP");
+		}
+	}
+
+	static bool CurlAvailable()
+	{
+		std::call_once(g_curlOnce, LoadCurlOnce);
+		return g_curl.ok;
+	}
+
+	static size_t CurlWriteCb(char* ptr, size_t size, size_t nmemb, void* ud)
+	{
+		const size_t n = size * nmemb;
+		auto* data = static_cast<urlData*>(ud);
+		data->insert(data->end(), ptr, ptr + n);
+		return n;
+	}
+
+	// Single fetch over libcurl-impersonate. Mirrors URLRequestWinHTTP's contract:
+	// fills pData (NUL-terminated), optional final URL + HTTP status, returns true
+	// on a < 400 response with a body. Used for the Cloudflare-fronted khinsider
+	// requests; the CDN audio/cover downloads stay on WinHTTP.
+	static bool URLRequestCurl(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData,
+							   CStringW* pFinalUrl, DWORD* pHttpStatus)
+	{
+		pData.clear();
+		if (pFinalUrl) {
+			pFinalUrl->Empty();
+		}
+		if (pHttpStatus) {
+			*pHttpStatus = 0;
+		}
+
+		if (!CurlAvailable()) {
+			return false;
+		}
+
+		CURLh* h = g_curl.easy_init();
+		if (!h) {
+			return false;
+		}
+
+		const CStringA urlA = WStrToUTF8(url);
+		struct curl_slist* hdrs = nullptr;
+
+		g_curl.easy_setopt(h, KHCURLOPT_URL, urlA.GetString());
+		g_curl.easy_setopt(h, KHCURLOPT_WRITEFUNCTION, &CurlWriteCb);
+		g_curl.easy_setopt(h, KHCURLOPT_WRITEDATA, &pData);
+		g_curl.easy_setopt(h, KHCURLOPT_FOLLOWLOCATION, 1L);
+		g_curl.easy_setopt(h, KHCURLOPT_ACCEPT_ENCODING, "");                       // advertise + auto-decompress
+		g_curl.easy_setopt(h, KHCURLOPT_SSL_OPTIONS, (long)KHCURLSSLOPT_NATIVE_CA); // verify against the Windows cert store
+		g_curl.easy_setopt(h, KHCURLOPT_NOSIGNAL, 1L);
+		g_curl.easy_setopt(h, KHCURLOPT_FRESH_CONNECT, 1L);                         // never reuse a possibly-challenged connection
+		g_curl.easy_setopt(h, KHCURLOPT_CONNECTTIMEOUT_MS, 15000L);
+		g_curl.easy_setopt(h, KHCURLOPT_TIMEOUT_MS, 30000L);
+
+		// Forge a current Chrome TLS/HTTP2 fingerprint + matching default headers.
+		g_curl.easy_impersonate(h, KH_IMPERSONATE_TARGET, 1);
+
+		if (!body.IsEmpty()) {
+			g_curl.easy_setopt(h, KHCURLOPT_POST, 1L);
+			g_curl.easy_setopt(h, KHCURLOPT_POSTFIELDSIZE, (long)body.GetLength());
+			g_curl.easy_setopt(h, KHCURLOPT_POSTFIELDS, body.GetString());
+			hdrs = g_curl.slist_append(hdrs, "Content-Type: application/x-www-form-urlencoded");
+		}
+		if (hdrs) {
+			g_curl.easy_setopt(h, KHCURLOPT_HTTPHEADER, hdrs);
+		}
+
+		const int rc = g_curl.easy_perform(h);
+
+		long status = 0;
+		g_curl.easy_getinfo(h, KHCURLINFO_RESPONSE_CODE, &status);
+		if (pHttpStatus) {
+			*pHttpStatus = (DWORD)status;
+		}
+		if (pFinalUrl) {
+			char* eff = nullptr;
+			if (g_curl.easy_getinfo(h, KHCURLINFO_EFFECTIVE_URL, &eff) == 0 && eff) {
+				*pFinalUrl = UTF8ToWStr(eff);
+			}
+		}
+
+		if (hdrs) {
+			g_curl.slist_free_all(hdrs);
+		}
+		g_curl.easy_cleanup(h);
+
+		KHLog(L"curl %s %s -> rc=%d status=%ld, %u bytes", verb, url.GetString(), rc, status,
+			  static_cast<unsigned>(pData.size()));
+
+		if (rc != 0 || status >= 400) {
+			pData.clear();
+			return false;
+		}
+		if (!pData.empty()) {
+			pData.emplace_back('\0');
+		}
+		return !pData.empty();
+	}
+
 	// GET or POST (form-urlencoded when 'body' is non-empty) with browser-like
 	// headers over WinHTTP. Cloudflare on downloads.khinsider.com only accepts
 	// browser user-agents speaking HTTP/2, which WinHTTP supports (WinInet's
 	// HTTP/2 option does not take effect and gets a 403). Redirects are
 	// followed; 'pFinalUrl' (optional) receives the URL we actually ended up on.
-	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
+	static bool URLRequestWinHTTP(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
 						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0, DWORD* pHttpStatus = nullptr)
 	{
 		pData.clear();
@@ -210,6 +418,35 @@ namespace KHInsider
 		}
 
 		return !pData.empty();
+	}
+
+	// Transport dispatcher. Cloudflare-fronted khinsider.com requests go through
+	// curl-impersonate, retried a few times because Cloudflare challenges even a
+	// real browser intermittently; if every attempt fails (or the DLL isn't
+	// present) we fall back to WinHTTP. Everything else - the CDN audio/cover
+	// hosts, and the Range-limited audio prefix fetch - stays on WinHTTP.
+	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
+						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0, DWORD* pHttpStatus = nullptr)
+	{
+		const bool khinsider = (url.Find(KHINSIDER_HOST) >= 0);
+		if (khinsider && !extraHeaders && maxBytes == 0 && CurlAvailable()) {
+			for (int attempt = 1; attempt <= KH_CURL_ATTEMPTS; ++attempt) {
+				DWORD st = 0;
+				if (URLRequestCurl(verb, url, body, pData, pFinalUrl, &st)) {
+					if (pHttpStatus) {
+						*pHttpStatus = st;
+					}
+					return true;
+				}
+				if (attempt < KH_CURL_ATTEMPTS) {
+					KHLog(L"curl: attempt %d failed (status %lu) - retrying", attempt, st);
+					Sleep(400 * attempt);
+				} else {
+					KHLog(L"curl: all %d attempts failed (status %lu) - falling back to WinHTTP", KH_CURL_ATTEMPTS, st);
+				}
+			}
+		}
+		return URLRequestWinHTTP(verb, url, body, pData, pFinalUrl, extraHeaders, maxBytes, pHttpStatus);
 	}
 
 	void DebugLog(const CStringW& msg)
