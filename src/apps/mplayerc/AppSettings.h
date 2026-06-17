@@ -766,6 +766,7 @@ public:
 	bool			bShowKHRadioBar;
 	bool			bKHRadioAvoidPlayed;
 	bool			bKHRadioFilterSpoken;
+	bool			bKHRadioExclusive;
 	CStringW		strKHRadioTypes;
 	CStringW		strKHRadioYears;
 	CStringW		strKHRadioPlatforms;

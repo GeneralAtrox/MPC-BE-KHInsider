@@ -55,6 +55,7 @@ public:
 	CButton  m_buttonClear;
 	CButton  m_checkAvoidPlayed;
 	CButton  m_checkFilterSpoken;
+	CButton  m_checkExclusive;
 	CButton  m_buttonRandom;
 	CStatic  m_staticStatus;
 	CListBox m_listHistory;
@@ -79,6 +80,7 @@ protected:
 	afx_msg void OnClearFilters();
 	afx_msg void OnAvoidPlayedClicked();
 	afx_msg void OnFilterSpokenClicked();
+	afx_msg void OnExclusiveClicked();
 	afx_msg void OnRandomAlbum();
 	afx_msg void OnHistoryDblClk();
 	afx_msg LRESULT OnKHRadioStatus(WPARAM wParam, LPARAM lParam);
@@ -97,6 +99,8 @@ private:
 		CStringW albumUrl;
 		bool bAvoidPlayed = false;
 		bool bFilterSpoken = false;
+		bool bExclusive = false;            // only keep albums exclusive to the selected console(s)
+		std::vector<CStringW> selectedPlatformNames; // display names of the chosen consoles
 		std::vector<CStringW> playedAlbums; // snapshot of history URLs
 	};
 

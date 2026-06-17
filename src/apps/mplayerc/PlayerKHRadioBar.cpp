@@ -199,6 +199,7 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_KHRADIO_CLEAR_BUTTON, m_buttonClear);
 	DDX_Control(pDX, IDC_KHRADIO_AVOID_CHECK, m_checkAvoidPlayed);
 	DDX_Control(pDX, IDC_KHRADIO_SPOKEN_CHECK, m_checkFilterSpoken);
+	DDX_Control(pDX, IDC_KHRADIO_EXCLUSIVE_CHECK, m_checkExclusive);
 	DDX_Control(pDX, IDC_KHRADIO_RANDOM_BUTTON, m_buttonRandom);
 	DDX_Control(pDX, IDC_KHRADIO_STATUS, m_staticStatus);
 	DDX_Control(pDX, IDC_KHRADIO_HISTORY_LIST, m_listHistory);
@@ -215,6 +216,7 @@ BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_BN_CLICKED(IDC_KHRADIO_CLEAR_BUTTON, OnClearFilters)
 	ON_BN_CLICKED(IDC_KHRADIO_AVOID_CHECK, OnAvoidPlayedClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_SPOKEN_CHECK, OnFilterSpokenClicked)
+	ON_BN_CLICKED(IDC_KHRADIO_EXCLUSIVE_CHECK, OnExclusiveClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_RANDOM_BUTTON, OnRandomAlbum)
 	ON_LBN_DBLCLK(IDC_KHRADIO_HISTORY_LIST, OnHistoryDblClk)
 	ON_MESSAGE(WM_KHRADIO_STATUS, OnKHRadioStatus)
@@ -256,6 +258,7 @@ BOOL CKHRadioDlg::OnInitDialog()
 	AddAnchor(IDC_KHRADIO_CLEAR_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_AVOID_CHECK, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_SPOKEN_CHECK, TOP_LEFT, TOP_RIGHT);
+	AddAnchor(IDC_KHRADIO_EXCLUSIVE_CHECK, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_RANDOM_BUTTON, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_STATUS, TOP_LEFT, TOP_RIGHT);
 	AddAnchor(IDC_KHRADIO_HISTORY_LABEL, TOP_LEFT, TOP_RIGHT);
@@ -482,6 +485,7 @@ void CKHRadioDlg::RestoreSelections()
 	ApplySelection(m_listPlatform, s.strKHRadioPlatforms);
 	m_checkAvoidPlayed.SetCheck(s.bKHRadioAvoidPlayed ? BST_CHECKED : BST_UNCHECKED);
 	m_checkFilterSpoken.SetCheck(s.bKHRadioFilterSpoken ? BST_CHECKED : BST_UNCHECKED);
+	m_checkExclusive.SetCheck(s.bKHRadioExclusive ? BST_CHECKED : BST_UNCHECKED);
 
 	const auto selCount = [](CListBox& l) {
 		int n = 0;
@@ -505,6 +509,7 @@ void CKHRadioDlg::SaveSelections()
 	s.strKHRadioPlatforms = JoinSelection(m_listPlatform);
 	s.bKHRadioAvoidPlayed = (m_checkAvoidPlayed.GetCheck() == BST_CHECKED);
 	s.bKHRadioFilterSpoken = (m_checkFilterSpoken.GetCheck() == BST_CHECKED);
+	s.bKHRadioExclusive = (m_checkExclusive.GetCheck() == BST_CHECKED);
 }
 
 void CKHRadioDlg::OnSelChangeFilters()
@@ -518,6 +523,11 @@ void CKHRadioDlg::OnAvoidPlayedClicked()
 }
 
 void CKHRadioDlg::OnFilterSpokenClicked()
+{
+	SaveSelections();
+}
+
+void CKHRadioDlg::OnExclusiveClicked()
 {
 	SaveSelections();
 }
@@ -573,6 +583,7 @@ void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppen
 	p->albumUrl = albumUrl;
 	p->bAvoidPlayed = (m_checkAvoidPlayed.GetCheck() == BST_CHECKED);
 	p->bFilterSpoken = (m_checkFilterSpoken.GetCheck() == BST_CHECKED);
+	p->bExclusive = (m_checkExclusive.GetCheck() == BST_CHECKED);
 
 	if (!bDirect) {
 		std::vector<int> types, years, platforms;
@@ -580,6 +591,16 @@ void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppen
 		GetSelectedValues(m_listYear, years);
 		GetSelectedValues(m_listPlatform, platforms);
 		p->formBody = KHInsider::BuildRandomAlbumForm(types, years, platforms);
+
+		// exclusive mode compares each album's platform tag against the chosen
+		// consoles' display names (which match KHInsider's own platform labels)
+		for (int i = 0; i < m_listPlatform.GetCount(); i++) {
+			if (m_listPlatform.GetSel(i) > 0) {
+				CStringW name;
+				m_listPlatform.GetText(i, name);
+				p->selectedPlatformNames.emplace_back(name);
+			}
+		}
 
 		for (const auto& album : m_history.Albums()) {
 			p->playedAlbums.emplace_back(album.url);
@@ -618,6 +639,37 @@ void CKHRadioDlg::MaybePrefetchNext()
 	}
 }
 
+// True if every console the album is tagged with is among the user's selected
+// consoles - i.e. the album is exclusive to the chosen platform(s). An empty
+// album tag can't be verified, so it's treated as exclusive (fail-open) to
+// avoid dead-ending the radio if a page's platform line ever fails to parse.
+static bool AlbumExclusiveTo(const CStringW& albumPlatforms, const std::vector<CStringW>& selected)
+{
+	if (albumPlatforms.IsEmpty() || selected.empty()) {
+		return true;
+	}
+	int pos = 0;
+	while (pos < albumPlatforms.GetLength()) {
+		const int comma = albumPlatforms.Find(L',', pos);
+		CStringW tok = (comma < 0) ? albumPlatforms.Mid(pos) : albumPlatforms.Mid(pos, comma - pos);
+		tok.Trim();
+		if (!tok.IsEmpty()) {
+			bool inSel = false;
+			for (const auto& s : selected) {
+				if (s.CompareNoCase(tok) == 0) { inSel = true; break; }
+			}
+			if (!inSel) {
+				return false; // tagged for a console the user didn't pick
+			}
+		}
+		if (comma < 0) {
+			break;
+		}
+		pos = comma + 1;
+	}
+	return true;
+}
+
 UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 {
 	std::unique_ptr<FetchParams> p(static_cast<FetchParams*>(pParam));
@@ -633,7 +685,9 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 	};
 
 	constexpr int maxAttempts = 8;
-	const int attempts = p->bDirect ? 1 : maxAttempts;
+	// exclusive mode rerolls multi-platform albums, so it needs more tries to
+	// land on a console-exclusive one
+	const int attempts = p->bDirect ? 1 : (p->bExclusive ? 14 : maxAttempts);
 
 	int resolved = 0;
 	int skippedFiltered = 0;
@@ -665,6 +719,21 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 				postText(WM_KHRADIO_STATUS, status);
 				continue;
 			}
+		}
+
+		// exclusive-console mode (random only): skip albums tagged for any console
+		// the user didn't pick, rerolling until we find a console-exclusive one
+		if (!p->bDirect && p->bExclusive && !p->selectedPlatformNames.empty()
+				&& !AlbumExclusiveTo(album.platforms, p->selectedPlatformNames)) {
+			KHInsider::DebugLog(L"exclusive: '" + album.title + L"' [" + album.platforms + L"] is multi-platform"
+								+ (attempt < attempts ? L" - rerolling" : L" - keeping (no exclusive found)"));
+			if (attempt < attempts) {
+				CStringW status;
+				status.Format(L"'%s' is multi-platform - rerolling for an exclusive...", album.title.GetString());
+				postText(WM_KHRADIO_STATUS, status);
+				continue;
+			}
+			// last attempt: fall through and accept so the radio never dead-ends
 		}
 
 		if (album.tracks.empty()) {

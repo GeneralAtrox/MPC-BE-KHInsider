@@ -925,11 +925,17 @@ namespace KHInsider
 		};
 		const double modRatio = bandPower(3.0, 6.0) / (bandPower(1.0, 15.0) + 1e-9);
 
-		// Speech needs ALL of: gaps between phrases (pauseRatio), ~4 Hz syllabic
-		// rhythm (modRatio) and voiced/unvoiced alternation (zcrCoV). Requiring
-		// the pause gate is what stops loud, gapless music (which can still have
-		// high modRatio/zcrCoV) from being misflagged as spoken.
-		const bool spoken = (pauseRatio > 0.18) && (modRatio > 0.32) && (zcrCoV > 0.50);
+		// Two speech signatures, either of which marks a track as spoken:
+		//  - rhythmSpoken: continuous speech shows a strong ~4 Hz syllabic rhythm
+		//    (modRatio) plus gaps (pauseRatio) and voiced/unvoiced alternation.
+		//  - gappySpoken: sparse / dramatic speech (voice-drama tracks with long
+		//    gaps between lines) has only weak 4 Hz rhythm, but gives itself away
+		//    by a high pause ratio together with strong zero-crossing variance.
+		// Music almost never trips the gappy path because it keeps playing, so its
+		// pause ratio stays low (observed music: ~0.00-0.11; voice: ~0.40-0.65).
+		const bool rhythmSpoken = (pauseRatio > 0.18) && (modRatio > 0.32) && (zcrCoV > 0.50);
+		const bool gappySpoken  = (pauseRatio > 0.35) && (zcrCoV > 0.55);
+		const bool spoken = rhythmSpoken || gappySpoken;
 
 		KHLog(L"audio check '%s': mod=%.2f pause=%.2f zcrCoV=%.2f peak=%.3f -> %s",
 			  trackName.GetString(), modRatio, pauseRatio, zcrCoV, maxE, spoken ? L"SPOKEN" : L"music");
