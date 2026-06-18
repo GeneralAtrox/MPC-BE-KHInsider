@@ -640,12 +640,13 @@ namespace KHInsider
 			}
 		}
 
-		// Album cover candidates. Each <div class="albumImage"> block holds a small
-		// <img src="...thumbs/..."> (ideal for the little now-playing art) and a
-		// full-size <a href="..."> (often a multi-MB booklet scan that is slow and
-		// fails to download more often). Collect every block's thumbnail first, then
-		// the full-size images as fallbacks, so we keep trying until *some* cover
-		// downloads instead of falling back to the speaker logo.
+		// Album cover candidates. Each <div class="albumImage"> block holds a full-
+		// size <a href="..."> (a high-res scan - sharp as the now-playing art) and a
+		// small <img src="...thumbs/..."> (only ~117 px - looks tiny when displayed).
+		// Prefer each block's full image, with the thumbnails as fallbacks; the worker
+		// tries them in order until one downloads. Cover downloads now go through
+		// curl-impersonate, so the larger full image is reliable - the thumbnail was
+		// only a workaround for the old, sometimes-blocked WinHTTP path.
 		static const std::regex reImgSrc("<img[^>]*\\ssrc=\"(https?://[^\"]+\\.(?:jpg|jpeg|png|gif|webp))\"", std::regex::icase);
 		static const std::regex reImgHref("href=\"(https?://[^\"]+\\.(?:jpg|jpeg|png|gif|webp))\"", std::regex::icase);
 		std::vector<CStringW> thumbs, fulls;
@@ -660,8 +661,8 @@ namespace KHInsider
 				fulls.push_back(DecodeHtmlEntities(UTF8ToWStr(m[1].str().c_str())));
 			}
 		}
-		for (const auto& u : thumbs) { album.coverUrls.push_back(u); }
 		for (const auto& u : fulls)  { album.coverUrls.push_back(u); }
+		for (const auto& u : thumbs) { album.coverUrls.push_back(u); }
 
 		// album platforms: the "Platforms: <a>Saturn</a>, <a>Arcade</a><br>" line in
 		// the page header (always "Platforms:" even for one). Surfaced in the UI so
