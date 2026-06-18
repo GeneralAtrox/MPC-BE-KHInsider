@@ -805,6 +805,25 @@ namespace KHInsider
 		return true;
 	}
 
+	CStringW AlbumUrlFromAudioUrl(const CStringW& audioUrl)
+	{
+		// CDN audio: https://<cdn>/soundtracks/<slug>/<hash>/NN.%20Track.mp3
+		const int marker = audioUrl.Find(L"/soundtracks/");
+		if (marker < 0) {
+			return L"";
+		}
+		const int start = marker + 13; // length of "/soundtracks/"
+		const int slash = audioUrl.Find(L'/', start);
+		if (slash < 0 || slash <= start) {
+			return L"";
+		}
+		const CStringW slug = audioUrl.Mid(start, slash - start);
+		if (slug.IsEmpty()) {
+			return L"";
+		}
+		return CStringW(KHINSIDER_BASE) + L"/game-soundtracks/album/" + slug;
+	}
+
 	// Title-only spoken check: drama/voice keywords (English + Japanese). Used for
 	// individual track names and for whole album titles - a "...Mini Drama" or
 	// "Drama CD" / "Voice Collection" album is entirely spoken, so the whole

@@ -167,6 +167,15 @@ struct KHRadioTrackMsg {
 	CStringW coverPath;
 };
 
+// params for the background cover-only fetch used to recover a restored
+// playlist's album art after a restart
+struct CoverFetchParams {
+	HWND hWnd = nullptr;
+	UINT gen = 0;
+	std::shared_ptr<std::atomic<UINT>> pGen;
+	CStringW albumUrl;
+};
+
 // CKHRadioDlg
 
 CKHRadioDlg::CKHRadioDlg()
@@ -223,6 +232,7 @@ BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_MESSAGE(WM_KHRADIO_ALBUM, OnKHRadioAlbum)
 	ON_MESSAGE(WM_KHRADIO_TRACK, OnKHRadioTrack)
 	ON_MESSAGE(WM_KHRADIO_DONE, OnKHRadioDone)
+	ON_MESSAGE(WM_KHRADIO_COVER, OnKHRadioCover)
 END_MESSAGE_MAP()
 
 BOOL CKHRadioDlg::OnInitDialog()
@@ -639,6 +649,55 @@ void CKHRadioDlg::MaybePrefetchNext()
 	}
 }
 
+void CKHRadioDlg::StartCoverFetch(const CStringW& albumUrl)
+{
+	if (albumUrl.IsEmpty()) {
+		return;
+	}
+	auto p = std::make_unique<CoverFetchParams>();
+	p->hWnd = m_hWnd;
+	p->gen = *m_pGen;   // current gen; a later StartFetch supersedes this cover
+	p->pGen = m_pGen;
+	p->albumUrl = albumUrl;
+	if (AfxBeginThread(CoverFetchThreadProc, p.get())) {
+		p.release();
+	}
+}
+
+UINT CKHRadioDlg::CoverFetchThreadProc(LPVOID pParam)
+{
+	std::unique_ptr<CoverFetchParams> p(static_cast<CoverFetchParams*>(pParam));
+
+	KHInsider::Album album;
+	if (!KHInsider::FetchAlbum(p->albumUrl, album, nullptr) || album.coverUrls.empty()) {
+		return 0;
+	}
+	if ((*p->pGen) != p->gen) {
+		return 0; // a newer fetch took over
+	}
+
+	CStringW dir;
+	if (!AfxGetMyApp()->GetAppSavePath(dir)) {
+		return 0;
+	}
+	CStringW candidate;
+	candidate.Format(L"%skhradio_cover_resume_%u.img", dir.GetString(), p->gen);
+	for (const auto& url : album.coverUrls) {
+		if (url.IsEmpty() || !KHInsider::DownloadToFile(url, candidate)) {
+			continue;
+		}
+		if ((*p->pGen) != p->gen) {
+			return 0;
+		}
+		auto* msg = new KHRadioTextMsg{ p->gen, candidate };
+		if (!::PostMessageW(p->hWnd, WM_KHRADIO_COVER, 0, reinterpret_cast<LPARAM>(msg))) {
+			delete msg;
+		}
+		break;
+	}
+	return 0;
+}
+
 // True if every console the album is tagged with is among the user's selected
 // consoles - i.e. the album is exclusive to the chosen platform(s). An empty
 // album tag can't be verified, so it's treated as exclusive (fail-open) to
@@ -1015,6 +1074,20 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
+LRESULT CKHRadioDlg::OnKHRadioCover(WPARAM wParam, LPARAM lParam)
+{
+	std::unique_ptr<KHRadioTextMsg> m(reinterpret_cast<KHRadioTextMsg*>(lParam));
+	if (!m || m->gen != (*m_pGen)) {
+		return 0; // superseded by a newer fetch
+	}
+	auto pFrame = AfxGetMainFrame();
+	if (pFrame && !m->text.IsEmpty()) {
+		pFrame->SetRadioAlbumCover(m->text);
+		KHInsider::DebugLog(L"resume cover set: " + m->text);
+	}
+	return 0;
+}
+
 void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 {
 	auto pFrame = AfxGetMainFrame();
@@ -1031,6 +1104,14 @@ void CKHRadioDlg::OnPlaybackStarted(const CStringW& path)
 		if (!m_bRadioActive) {
 			m_bRadioActive = true;
 			KHInsider::DebugLog(L"radio: adopted restored playlist on startup -> active");
+		}
+		// the restored album's cover isn't in memory (and its file was cleaned at
+		// startup), so fetch it in the background - once per restored album
+		const CStringW restoredAlbum = KHInsider::AlbumUrlFromAudioUrl(path);
+		if (!restoredAlbum.IsEmpty() && restoredAlbum != m_currentPlayingAlbum) {
+			m_currentPlayingAlbum = restoredAlbum;
+			KHInsider::DebugLog(L"radio: fetching cover for restored album " + restoredAlbum);
+			StartCoverFetch(restoredAlbum);
 		}
 		if (pFrame && !m_bFetching && pFrame->m_wndPlaylistBar.IsAtEnd()) {
 			KHInsider::DebugLog(L"radio: restored playlist on last track -> fetching next album");

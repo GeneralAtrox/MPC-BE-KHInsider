@@ -80,6 +80,12 @@ namespace KHInsider
 	// keywords - lets the radio skip drama-CD / voice albums by title.
 	bool IsSpokenTitle(const CStringW& title);
 
+	// Derive the album page URL from a CDN track audio URL, e.g.
+	// https://nu.vgmtreasurechest.com/soundtracks/<slug>/<hash>/NN.mp3 ->
+	// https://downloads.khinsider.com/game-soundtracks/album/<slug>. Used to
+	// recover a restored playlist's cover after a restart. Empty if not derivable.
+	CStringW AlbumUrlFromAudioUrl(const CStringW& audioUrl);
+
 	CStringW DecodeHtmlEntities(CStringW str);
 
 	// Append a line to %APPDATA%\MPC-BE\khradio_debug.log.

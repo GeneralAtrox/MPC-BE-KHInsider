@@ -33,6 +33,7 @@
 #define WM_KHRADIO_ALBUM  (WM_APP + 851)
 #define WM_KHRADIO_TRACK  (WM_APP + 852)
 #define WM_KHRADIO_DONE   (WM_APP + 853)
+#define WM_KHRADIO_COVER  (WM_APP + 854)
 
 // CKHRadioDlg dialog — replica of the site's "Random Album Advanced" form
 // plus listening history.
@@ -87,6 +88,7 @@ protected:
 	afx_msg LRESULT OnKHRadioAlbum(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnKHRadioTrack(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnKHRadioDone(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnKHRadioCover(WPARAM wParam, LPARAM lParam);
 
 private:
 	struct FetchParams {
@@ -105,8 +107,10 @@ private:
 	};
 
 	static UINT FetchThreadProc(LPVOID pParam);
+	static UINT CoverFetchThreadProc(LPVOID pParam); // background cover-only fetch for a restored album
 
 	void StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppend = false);
+	void StartCoverFetch(const CStringW& albumUrl);  // fetch just the cover for a resumed/restored album
 	void MaybePrefetchNext(); // keep KHRADIO_QUEUE_DEPTH albums queued ahead
 	void SetStatus(const CStringW& text);
 	void PopulateFilterLists();
