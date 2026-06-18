@@ -19843,6 +19843,17 @@ CStringW GetCoverImgFromPath(CStringW fullfilename)
 	return L"";
 }
 
+void CMainFrame::RefreshRadioCover()
+{
+	// The cover for a restored playlist is fetched asynchronously, after the
+	// now-playing picture was already drawn (as the speaker logo). Reload and
+	// repaint it now - SetAudioPicture() reloads m_pMainBitmap from the radio
+	// cover path and invalidates the view.
+	if (m_bAudioOnly && IsSomethingLoaded()) {
+		SetAudioPicture(AfxGetAppSettings().nAudioWindowMode != 2);
+	}
+}
+
 HRESULT CMainFrame::SetAudioPicture(BOOL show)
 {
 	const CAppSettings& s = AfxGetAppSettings();

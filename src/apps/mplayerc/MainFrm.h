@@ -685,6 +685,7 @@ public:
 		m_strRadioCoverPath = path;
 	}
 	CStringW m_strRadioCoverPath;
+	void RefreshRadioCover(); // reload + repaint the now-playing cover (for the async restored-playlist cover)
 
 	BOOL OpenCurPlaylistItem(REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);
 	BOOL OpenFile(const CString fname, REFERENCE_TIME rtStart = INVALID_TIME, BOOL bAddRecent = TRUE);

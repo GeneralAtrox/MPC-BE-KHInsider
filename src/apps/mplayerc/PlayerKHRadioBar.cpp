@@ -1083,6 +1083,10 @@ LRESULT CKHRadioDlg::OnKHRadioCover(WPARAM wParam, LPARAM lParam)
 	auto pFrame = AfxGetMainFrame();
 	if (pFrame && !m->text.IsEmpty()) {
 		pFrame->SetRadioAlbumCover(m->text);
+		// the cover arrived after the now-playing picture was already drawn (async
+		// restored-playlist fetch), so reload + repaint it now instead of waiting
+		// for the next track to open
+		pFrame->RefreshRadioCover();
 		KHInsider::DebugLog(L"resume cover set: " + m->text);
 	}
 	return 0;
