@@ -41,7 +41,7 @@ namespace KHInsider
 	struct Album {
 		CStringW url;       // album page URL
 		CStringW title;
-		CStringW coverUrl;  // album cover image, if any
+		std::vector<CStringW> coverUrls; // cover candidates, best/smallest first (thumbnails, then full-size as fallback)
 		CStringW platforms; // comma-separated console list ("Saturn, Arcade"), if any
 		std::vector<Track> tracks;
 	};

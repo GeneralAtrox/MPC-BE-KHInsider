@@ -428,8 +428,11 @@ namespace KHInsider
 	static bool URLRequest(LPCWSTR verb, const CStringW& url, const CStringA& body, urlData& pData, CStringW* pFinalUrl = nullptr,
 						   LPCWSTR extraHeaders = nullptr, size_t maxBytes = 0, DWORD* pHttpStatus = nullptr)
 	{
-		const bool khinsider = (url.Find(KHINSIDER_HOST) >= 0);
-		if (khinsider && !extraHeaders && maxBytes == 0 && CurlAvailable()) {
+		// Cloudflare-fronted hosts: the main site and the vgmtreasurechest CDN
+		// (album covers). Route their plain GET/POSTs through curl-impersonate; the
+		// audio-prefix Range fetch (extraHeaders/maxBytes set) stays on WinHTTP.
+		const bool cfHost = (url.Find(KHINSIDER_HOST) >= 0) || (url.Find(L"vgmtreasurechest.com") >= 0);
+		if (cfHost && !extraHeaders && maxBytes == 0 && CurlAvailable()) {
 			for (int attempt = 1; attempt <= KH_CURL_ATTEMPTS; ++attempt) {
 				DWORD st = 0;
 				if (URLRequestCurl(verb, url, body, pData, pFinalUrl, &st)) {
@@ -637,16 +640,28 @@ namespace KHInsider
 			}
 		}
 
-		// album cover: the full-size image linked inside <div class="albumImage">
-		const size_t imgPos = html.find("class=\"albumImage\"");
-		if (imgPos != std::string::npos) {
+		// Album cover candidates. Each <div class="albumImage"> block holds a small
+		// <img src="...thumbs/..."> (ideal for the little now-playing art) and a
+		// full-size <a href="..."> (often a multi-MB booklet scan that is slow and
+		// fails to download more often). Collect every block's thumbnail first, then
+		// the full-size images as fallbacks, so we keep trying until *some* cover
+		// downloads instead of falling back to the speaker logo.
+		static const std::regex reImgSrc("<img[^>]*\\ssrc=\"(https?://[^\"]+\\.(?:jpg|jpeg|png|gif|webp))\"", std::regex::icase);
+		static const std::regex reImgHref("href=\"(https?://[^\"]+\\.(?:jpg|jpeg|png|gif|webp))\"", std::regex::icase);
+		std::vector<CStringW> thumbs, fulls;
+		for (size_t imgPos = html.find("class=\"albumImage\""); imgPos != std::string::npos;
+				imgPos = html.find("class=\"albumImage\"", imgPos + 1)) {
 			const std::string imgBlock = html.substr(imgPos, 600);
-			static const std::regex reCover("href=\"(https?://[^\"]+\\.(jpg|jpeg|png|gif|webp))\"", std::regex::icase);
 			std::smatch m;
-			if (std::regex_search(imgBlock, m, reCover)) {
-				album.coverUrl = DecodeHtmlEntities(UTF8ToWStr(m[1].str().c_str()));
+			if (std::regex_search(imgBlock, m, reImgSrc)) {
+				thumbs.push_back(DecodeHtmlEntities(UTF8ToWStr(m[1].str().c_str())));
+			}
+			if (std::regex_search(imgBlock, m, reImgHref)) {
+				fulls.push_back(DecodeHtmlEntities(UTF8ToWStr(m[1].str().c_str())));
 			}
 		}
+		for (const auto& u : thumbs) { album.coverUrls.push_back(u); }
+		for (const auto& u : fulls)  { album.coverUrls.push_back(u); }
 
 		// album platforms: the "Platforms: <a>Saturn</a>, <a>Arcade</a><br>" line in
 		// the page header (always "Platforms:" even for one). Surfaced in the UI so
@@ -668,9 +683,11 @@ namespace KHInsider
 			}
 		}
 
-		KHLog(L"parsed album: '%s', %u tracks, platforms [%s], cover %s", album.title.GetString(), static_cast<unsigned>(album.tracks.size()),
+		const CStringW coverInfo = album.coverUrls.empty() ? CStringW(L"(none)") : album.coverUrls[0];
+		KHLog(L"parsed album: '%s', %u tracks, platforms [%s], %u cover candidate(s), first=%s",
+			  album.title.GetString(), static_cast<unsigned>(album.tracks.size()),
 			  album.platforms.IsEmpty() ? L"(none)" : album.platforms.GetString(),
-			  album.coverUrl.IsEmpty() ? L"(none)" : album.coverUrl.GetString());
+			  static_cast<unsigned>(album.coverUrls.size()), coverInfo.GetString());
 
 		return !album.tracks.empty();
 	}

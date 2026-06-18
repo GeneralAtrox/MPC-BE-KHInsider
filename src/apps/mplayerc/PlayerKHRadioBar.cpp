@@ -743,15 +743,19 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 			break;
 		}
 
-		// download the album cover so it can replace the audio logo on playback
+		// download the album cover so it can replace the audio logo on playback;
+		// try each candidate (thumbnails first, full-size as fallback) until one works
 		CStringW coverPath;
-		if (!album.coverUrl.IsEmpty()) {
+		if (!album.coverUrls.empty()) {
 			CStringW dir;
 			if (AfxGetMyApp()->GetAppSavePath(dir)) {
 				CStringW candidate;
 				candidate.Format(L"%skhradio_cover_%u.img", dir.GetString(), p->gen);
-				if (KHInsider::DownloadToFile(album.coverUrl, candidate)) {
-					coverPath = candidate;
+				for (const auto& coverUrl : album.coverUrls) {
+					if (!coverUrl.IsEmpty() && KHInsider::DownloadToFile(coverUrl, candidate)) {
+						coverPath = candidate;
+						break;
+					}
 				}
 			}
 		}
