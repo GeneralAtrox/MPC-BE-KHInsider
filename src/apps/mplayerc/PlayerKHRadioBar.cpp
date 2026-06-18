@@ -736,6 +736,19 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 			// last attempt: fall through and accept so the radio never dead-ends
 		}
 
+		// whole-album spoken filter: drama / voice albums (e.g. "...Mini Drama",
+		// "Drama CD", "Voice Collection") are entirely spoken, so skip the album
+		// by title instead of downloading and analyzing each track
+		if (!p->bDirect && p->bFilterSpoken && KHInsider::IsSpokenTitle(album.title)) {
+			KHInsider::DebugLog(L"spoken-album: '" + album.title + L"' -> rerolling");
+			if (attempt < attempts) {
+				CStringW status;
+				status.Format(L"'%s' is a drama/voice album - rerolling...", album.title.GetString());
+				postText(WM_KHRADIO_STATUS, status);
+				continue;
+			}
+		}
+
 		if (album.tracks.empty()) {
 			if (!p->bDirect && attempt < attempts) {
 				continue;

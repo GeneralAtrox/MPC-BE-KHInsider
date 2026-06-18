@@ -76,6 +76,10 @@ namespace KHInsider
 	// (near-)silent, for the "skip non-music tracks" filter.
 	AudioVerdict ClassifyTrackAudio(const CStringW& audioUrl, const CStringW& trackName);
 
+	// True if a title (a track name or a whole album title) contains drama/voice
+	// keywords - lets the radio skip drama-CD / voice albums by title.
+	bool IsSpokenTitle(const CStringW& title);
+
 	CStringW DecodeHtmlEntities(CStringW str);
 
 	// Append a line to %APPDATA%\MPC-BE\khradio_debug.log.

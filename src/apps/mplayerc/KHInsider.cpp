@@ -805,6 +805,33 @@ namespace KHInsider
 		return true;
 	}
 
+	// Title-only spoken check: drama/voice keywords (English + Japanese). Used for
+	// individual track names and for whole album titles - a "...Mini Drama" or
+	// "Drama CD" / "Voice Collection" album is entirely spoken, so the whole
+	// album can be skipped without analyzing each track.
+	bool IsSpokenTitle(const CStringW& title)
+	{
+		CStringW lower = title;
+		lower.MakeLower();
+		static const LPCWSTR spokenWords[] = {
+			L"dialogue", L"dialog", L"voice", L"narration", L"narrator", L"monologue",
+			L"interview", L"commentary", L"drama cd", L"mini drama", L"audio drama",
+			L"radio drama", L"drama disc", L"drama track", L"voice drama", L"vocal drama",
+			L"voice collection", L"skit", L"cutscene", L"cut scene", L"voice clip", L"voices",
+			L"\u30DC\u30A4\u30B9",                 // voice (boisu)
+			L"\u30BB\u30EA\u30D5",                 // serifu (spoken lines)
+			L"\u30C9\u30E9\u30DE",                 // drama
+			L"\u30CA\u30EC\u30FC\u30B7\u30E7\u30F3", // narration
+			L"\u4F1A\u8A71",                       // kaiwa (conversation)
+		};
+		for (const auto w : spokenWords) {
+			if (lower.Find(w) != -1) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	// Classify a track as music, spoken, or (near-)silent. First a cheap title
 	// check for spoken content, then a content analysis of a downloaded prefix:
 	// a prefix that never gets above a faint loudness is treated as empty/quiet;
@@ -816,23 +843,9 @@ namespace KHInsider
 		constexpr double kPi = 3.14159265358979323846;
 		constexpr double kQuietPeakRms = 0.015; // prefix never louder than this -> empty/quiet
 
-		CStringW lower = trackName;
-		lower.MakeLower();
-		static const LPCWSTR spokenWords[] = {
-			L"dialogue", L"dialog", L"voice", L"narration", L"narrator", L"monologue",
-			L"interview", L"commentary", L"drama cd", L"audio drama", L"radio drama",
-			L"skit", L"cutscene", L"cut scene", L"voice clip", L"voices",
-			L"\u30DC\u30A4\u30B9",                 // voice (boisu)
-			L"\u30BB\u30EA\u30D5",                 // serifu (spoken lines)
-			L"\u30C9\u30E9\u30DE",                 // drama
-			L"\u30CA\u30EC\u30FC\u30B7\u30E7\u30F3", // narration
-			L"\u4F1A\u8A71",                       // kaiwa (conversation)
-		};
-		for (const auto w : spokenWords) {
-			if (lower.Find(w) != -1) {
-				KHLog(L"audio check '%s': title match -> SPOKEN", trackName.GetString());
-				return AudioVerdict::Spoken;
-			}
+		if (IsSpokenTitle(trackName)) {
+			KHLog(L"audio check '%s': title match -> SPOKEN", trackName.GetString());
+			return AudioVerdict::Spoken;
 		}
 
 		// download a short prefix (~256 KB, enough for ~10-15s)
@@ -951,6 +964,12 @@ namespace KHInsider
 		// Music almost never trips the gappy path because it keeps playing, so its
 		// pause ratio stays low (observed music: ~0.00-0.11; voice: ~0.40-0.65).
 		const bool rhythmSpoken = (pauseRatio > 0.18) && (modRatio > 0.32) && (zcrCoV > 0.50);
+		// Sparse / dramatic speech (long gaps between lines) has weak 4 Hz rhythm
+		// but a high pause ratio plus strong zero-crossing variance. The gate stays
+		// at 0.35: some atmospheric/ambient music has moderate pauses (~0.25-0.30)
+		// and noisy textures (high zcr) and would be misflagged by a lower gate.
+		// Drama CDs (dialogue over BGM, lower pause) are caught by IsSpokenTitle on
+		// the album title instead.
 		const bool gappySpoken  = (pauseRatio > 0.35) && (zcrCoV > 0.55);
 		const bool spoken = rhythmSpoken || gappySpoken;
 
