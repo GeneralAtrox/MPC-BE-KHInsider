@@ -21,6 +21,8 @@
 #include "stdafx.h"
 #include "MainFrm.h"
 #include "PlayerKHRadioBar.h"
+#include "KHWebSession.h"
+#include "KHRadioLayout.h"
 #include "FileItem.h"
 #include "Misc.h"
 
@@ -179,7 +181,7 @@ struct CoverFetchParams {
 // CKHRadioDlg
 
 CKHRadioDlg::CKHRadioDlg()
-	: CResizableDialog(CKHRadioDlg::IDD, nullptr)
+	: CDialog(CKHRadioDlg::IDD, nullptr)
 {
 }
 
@@ -210,11 +212,13 @@ void CKHRadioDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_KHRADIO_SPOKEN_CHECK, m_checkFilterSpoken);
 	DDX_Control(pDX, IDC_KHRADIO_EXCLUSIVE_CHECK, m_checkExclusive);
 	DDX_Control(pDX, IDC_KHRADIO_RANDOM_BUTTON, m_buttonRandom);
+	DDX_Control(pDX, IDC_KHRADIO_LOGIN_BUTTON, m_buttonLogin);
 	DDX_Control(pDX, IDC_KHRADIO_STATUS, m_staticStatus);
 	DDX_Control(pDX, IDC_KHRADIO_HISTORY_LIST, m_listHistory);
 }
 
-BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
+BEGIN_MESSAGE_MAP(CKHRadioDlg, CDialog)
+	ON_WM_SIZE()
 	ON_WM_DESTROY()
 	ON_WM_CTLCOLOR()
 	ON_WM_DRAWITEM()
@@ -227,6 +231,8 @@ BEGIN_MESSAGE_MAP(CKHRadioDlg, CResizableDialog)
 	ON_BN_CLICKED(IDC_KHRADIO_SPOKEN_CHECK, OnFilterSpokenClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_EXCLUSIVE_CHECK, OnExclusiveClicked)
 	ON_BN_CLICKED(IDC_KHRADIO_RANDOM_BUTTON, OnRandomAlbum)
+	ON_BN_CLICKED(IDC_KHRADIO_LOGIN_BUTTON, OnLogin)
+	ON_MESSAGE(KHWebSession::WM_STATUS, OnSessionStatus)
 	ON_LBN_DBLCLK(IDC_KHRADIO_HISTORY_LIST, OnHistoryDblClk)
 	ON_MESSAGE(WM_KHRADIO_STATUS, OnKHRadioStatus)
 	ON_MESSAGE(WM_KHRADIO_ALBUM, OnKHRadioAlbum)
@@ -259,20 +265,17 @@ BOOL CKHRadioDlg::OnInitDialog()
 		}
 	}
 
-	AddAnchor(IDC_KHRADIO_TYPE_LABEL, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_TYPE_LIST, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_YEAR_LABEL, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_YEAR_LIST, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_PLATFORM_LABEL, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_PLATFORM_LIST, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_CLEAR_BUTTON, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_AVOID_CHECK, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_SPOKEN_CHECK, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_EXCLUSIVE_CHECK, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_RANDOM_BUTTON, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_STATUS, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_HISTORY_LABEL, TOP_LEFT, TOP_RIGHT);
-	AddAnchor(IDC_KHRADIO_HISTORY_LIST, TOP_LEFT, BOTTOM_RIGHT);
+	CRect templateRect;
+	GetClientRect(templateRect);
+	m_templateSize = templateRect.Size();
+	m_templateDpi = m_layoutDpi = GetDpiForWindow(m_hWnd);
+	GetFont()->GetLogFont(&m_templateFont);
+	for (CWnd* child = GetWindow(GW_CHILD); child; child = child->GetNextWindow()) {
+		CRect rect;
+		child->GetWindowRect(rect);
+		ScreenToClient(rect);
+		m_layout.push_back({child->m_hWnd, rect});
+	}
 
 	// match the player's dark theme, using the same palette as the playlist bar
 	m_bDarkTheme = !!AfxGetAppSettings().bUseDarkTheme;
@@ -301,9 +304,11 @@ BOOL CKHRadioDlg::OnInitDialog()
 
 		m_buttonRandom.SetButtonStyle(BS_OWNERDRAW);
 		m_buttonClear.SetButtonStyle(BS_OWNERDRAW);
+		m_buttonLogin.SetButtonStyle(BS_OWNERDRAW);
 	}
 
-	SetStatus(L"Ready. Pick your filters and roll an album.");
+	SetStatus(L"Checking KHInsider sign-in...");
+	KHWebSession::Initialize(AfxGetMainFrame()->m_hWnd, m_hWnd);
 
 	// Radio-only player: once the app has settled, if there's nothing to resume
 	// (no restored playlist), kick off a fresh random album automatically so the
@@ -320,7 +325,7 @@ void CKHRadioDlg::OnTimer(UINT_PTR nIDEvent)
 
 		// If radio is already running (the restored playlist was adopted in
 		// OnPlaybackStarted) or a fetch is in flight, there's nothing to do.
-		if (m_bRadioActive || m_bFetching) {
+		if (m_bRadioActive || m_bFetching || KHWebSession::GetStatus() != KHWebSession::Status::Ready) {
 			return;
 		}
 
@@ -363,7 +368,7 @@ HBRUSH CKHRadioDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 
 void CKHRadioDlg::OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct)
 {
-	if (m_bDarkTheme && (nIDCtl == IDC_KHRADIO_RANDOM_BUTTON || nIDCtl == IDC_KHRADIO_CLEAR_BUTTON)) {
+	if (m_bDarkTheme && (nIDCtl == IDC_KHRADIO_RANDOM_BUTTON || nIDCtl == IDC_KHRADIO_CLEAR_BUTTON || nIDCtl == IDC_KHRADIO_LOGIN_BUTTON)) {
 		CDC dc;
 		dc.Attach(lpDrawItemStruct->hDC);
 
@@ -408,6 +413,7 @@ void CKHRadioDlg::OnClearFilters()
 void CKHRadioDlg::OnDestroy()
 {
 	(*m_pGen)++; // orphan any running fetch thread
+	KHWebSession::Shutdown();
 	SaveSelections();
 
 	__super::OnDestroy();
@@ -572,6 +578,69 @@ void CKHRadioDlg::OnRandomAlbum()
 	StartFetch(false, L"");
 }
 
+void CKHRadioDlg::OnLogin()
+{
+	KHWebSession::ShowLogin();
+}
+
+LRESULT CKHRadioDlg::OnSessionStatus(WPARAM wParam, LPARAM)
+{
+	const auto status = static_cast<KHWebSession::Status>(wParam);
+	m_buttonLogin.SetWindowTextW(status == KHWebSession::Status::Ready ? L"KHInsider account..." : L"Sign in to KHInsider...");
+	switch (status) {
+		case KHWebSession::Status::Ready:
+			if (!m_bFetching) { SetStatus(L"Signed in. Pick your filters and roll an album."); }
+			SetTimer(KHRADIO_AUTOSTART_TIMER, KHRADIO_AUTOSTART_DELAY, nullptr);
+			break;
+		case KHWebSession::Status::Starting: SetStatus(L"Checking KHInsider sign-in..."); break;
+		case KHWebSession::Status::LoginRequired:
+			m_bRadioActive = false;
+			SetStatus(L"Please sign in to KHInsider to continue."); break;
+		case KHWebSession::Status::Blocked:
+			m_bRadioActive = false;
+			SetStatus(L"KHInsider needs browser verification. Open Sign in to continue."); break;
+		case KHWebSession::Status::Unavailable:
+			SetStatus(L"Browser unavailable. Install Microsoft Edge WebView2 Runtime, then reopen Sign in."); break;
+		case KHWebSession::Status::LayoutChanged:
+			SetStatus(L"Could not verify KHInsider sign-in: the page format changed."); break;
+		default: SetStatus(L"Could not connect to KHInsider. Open Sign in to retry."); break;
+	}
+	return 0;
+}
+
+CSize CKHRadioDlg::GetNaturalSize() const
+{
+	return CSize(MulDiv(m_templateSize.cx, m_layoutDpi, m_templateDpi),
+		MulDiv(m_templateSize.cy, m_layoutDpi, m_templateDpi));
+}
+
+void CKHRadioDlg::ScaleForDPI(UINT dpi)
+{
+	if (!m_hWnd || dpi == m_layoutDpi || m_layout.empty()) { return; }
+	m_layoutDpi = dpi;
+	LOGFONT font = m_templateFont;
+	font.lfHeight = MulDiv(font.lfHeight, dpi, m_templateDpi);
+	CFont next;
+	if (next.CreateFontIndirectW(&font)) {
+		SetFont(&next, FALSE);
+		for (const auto& item : m_layout) { ::SendMessageW(item.window, WM_SETFONT, (WPARAM)next.m_hObject, FALSE); }
+		m_scaledFont.DeleteObject();
+		m_scaledFont.Attach(next.Detach());
+	}
+}
+
+void CKHRadioDlg::OnSize(UINT type, int cx, int cy)
+{
+	__super::OnSize(type, cx, cy);
+	if (m_layout.empty()) { return; }
+	const CSize natural = GetNaturalSize();
+	for (const auto& item : m_layout) {
+		CRect r = KHRadioLayout::Place(item.rect, m_layoutDpi, m_templateDpi, natural, CSize(cx, cy),
+			::GetDlgCtrlID(item.window) == IDC_KHRADIO_HISTORY_LIST);
+		::MoveWindow(item.window, r.left, r.top, r.Width(), r.Height(), TRUE);
+	}
+}
+
 void CKHRadioDlg::OnHistoryDblClk()
 {
 	const int sel = m_listHistory.GetCurSel();
@@ -584,6 +653,10 @@ void CKHRadioDlg::OnHistoryDblClk()
 
 void CKHRadioDlg::StartFetch(bool bDirect, const CStringW& albumUrl, bool bAppend)
 {
+	if (KHWebSession::GetStatus() != KHWebSession::Status::Ready) {
+		OnSessionStatus((WPARAM)KHWebSession::GetStatus(), 0);
+		return;
+	}
 	auto p = std::make_unique<FetchParams>();
 	p->hWnd = m_hWnd;
 	p->gen = ++(*m_pGen);
@@ -852,7 +925,12 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 				continue;
 			}
 
-			const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl);
+			const CStringW audioUrl = KHInsider::ResolveTrackAudioUrl(album.tracks[i].pageUrl, &fetchStatus);
+			if (fetchStatus == KHInsider::FetchStatus::LoginRequired || fetchStatus == KHInsider::FetchStatus::Blocked
+					|| fetchStatus == KHInsider::FetchStatus::BrowserUnavailable) {
+				fetchOk = false;
+				break;
+			}
 			if (audioUrl.IsEmpty()) {
 				continue;
 			}
@@ -885,7 +963,7 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 			return 0;
 		}
 
-		if (resolved > 0) {
+		if (!fetchOk || resolved > 0) {
 			break; // got a playable album
 		}
 
@@ -908,8 +986,14 @@ UINT CKHRadioDlg::FetchThreadProc(LPVOID pParam)
 	CStringW doneText; // empty == success (handler shows "Playing/Queued")
 	if (!fetchOk) {
 		switch (fetchStatus) {
+			case KHInsider::FetchStatus::LoginRequired:
+				doneText = L"Please sign in to KHInsider again to continue.";
+				break;
+			case KHInsider::FetchStatus::BrowserUnavailable:
+				doneText = L"KHInsider browser unavailable. Open Sign in to retry.";
+				break;
 			case KHInsider::FetchStatus::Blocked:
-				doneText = L"KHInsider blocked the request (Cloudflare). Its bot protection may have changed.";
+				doneText = L"KHInsider needs browser verification. Open Sign in to continue.";
 				break;
 			case KHInsider::FetchStatus::LayoutChanged:
 				doneText = L"Couldn't read the album page - the site layout may have changed.";
@@ -1047,7 +1131,7 @@ LRESULT CKHRadioDlg::OnKHRadioDone(WPARAM wParam, LPARAM lParam)
 			m_queuedAlbumCount++;
 		} else {
 			// a replace fetch: this album is now the (only) one queued
-			m_bRadioActive = true;
+			m_bRadioActive = KHWebSession::GetStatus() == KHWebSession::Status::Ready;
 			m_queuedAlbumCount = 1;
 		}
 		CStringW lg;
@@ -1221,6 +1305,11 @@ BOOL CKHRadioBar::Create(CWnd* pParentWnd, UINT defDockBarID)
 	m_szMinVert = m_szVert = r.Size();
 	m_szMinHorz = m_szHorz = r.Size();
 	m_szMinFloat = m_szFloat = r.Size();
+	m_barDpi = GetDpiForWindow(m_hWnd);
+	// The frame normally reserves the full form height. Smaller monitors and
+	// floating panels use a scrollable viewport instead of clipping controls.
+	m_szMinVert.cy = m_szMinHorz.cy = m_szMinFloat.cy = MulDiv(180, GetDpiForWindow(m_hWnd), 96);
+	LayoutViewport();
 
 	return TRUE;
 }
@@ -1234,6 +1323,7 @@ BOOL CKHRadioBar::PreTranslateMessage(MSG* pMsg)
 {
 	if (IsWindow(pMsg->hwnd) && IsVisible() && pMsg->message >= WM_KEYFIRST && pMsg->message <= WM_KEYLAST) {
 		if (IsDialogMessageW(pMsg)) {
+			EnsureFocusVisible();
 			return TRUE;
 		}
 	}
@@ -1243,6 +1333,10 @@ BOOL CKHRadioBar::PreTranslateMessage(MSG* pMsg)
 
 BEGIN_MESSAGE_MAP(CKHRadioBar, CPlayerBar)
 	ON_WM_SIZE()
+	ON_WM_VSCROLL()
+	ON_WM_HSCROLL()
+	ON_WM_MOUSEWHEEL()
+	ON_WM_WINDOWPOSCHANGED()
 	ON_WM_NCLBUTTONUP()
 END_MESSAGE_MAP()
 
@@ -1250,11 +1344,124 @@ void CKHRadioBar::OnSize(UINT nType, int cx, int cy)
 {
 	__super::OnSize(nType, cx, cy);
 
-	if (::IsWindow(m_dlg.m_hWnd)) {
-		CRect r;
-		GetClientRect(r);
-		m_dlg.MoveWindow(r);
+	LayoutViewport();
+}
+
+CSize CKHRadioBar::GetMinimumSize() const
+{
+	CSize size = m_dlg.GetNaturalSize();
+	const int border = MulDiv(12, GetDpiForWindow(m_hWnd), 96);
+	size.cx += border;
+	size.cy += border + MulDiv(20, GetDpiForWindow(m_hWnd), 96);
+	return size;
+}
+
+void CKHRadioBar::ScaleForDPI(UINT dpi)
+{
+	if (!m_hWnd) { return; }
+	m_barDpi = dpi;
+	m_dlg.ScaleForDPI(dpi);
+	const auto size = m_dlg.GetNaturalSize();
+	m_szMinVert.cx = m_szMinHorz.cx = m_szMinFloat.cx = size.cx;
+	m_szMinVert.cy = m_szMinHorz.cy = m_szMinFloat.cy = MulDiv(180, dpi, 96);
+	LayoutViewport();
+}
+
+void CKHRadioBar::OnWindowPosChanged(WINDOWPOS* position)
+{
+	__super::OnWindowPosChanged(position);
+	const UINT dpi = GetDpiForWindow(m_hWnd);
+	if (m_barDpi && dpi != m_barDpi && !m_layingOut) { ScaleForDPI(dpi); }
+}
+
+void CKHRadioBar::LayoutViewport()
+{
+	if (!m_dlg.m_hWnd || m_layingOut) { return; }
+	m_layingOut = true;
+	const CSize natural = m_dlg.GetNaturalSize();
+	if (natural.cx <= 0 || natural.cy <= 0) { m_layingOut = false; return; }
+	CRect r;
+	GetClientRect(r);
+	const UINT dpi = GetDpiForWindow(m_hWnd);
+	const int verticalWidth = GetSystemMetricsForDpi(SM_CXVSCROLL, dpi);
+	const int horizontalHeight = GetSystemMetricsForDpi(SM_CYHSCROLL, dpi);
+	CSize available = r.Size();
+	if (GetStyle() & WS_VSCROLL) { available.cx += verticalWidth; }
+	if (GetStyle() & WS_HSCROLL) { available.cy += horizontalHeight; }
+	const auto viewport = KHRadioLayout::Measure(available, natural, verticalWidth, horizontalHeight);
+	ShowScrollBar(SB_HORZ, viewport.horizontal);
+	ShowScrollBar(SB_VERT, viewport.vertical);
+	GetClientRect(r);
+	for (int bar : {SB_HORZ, SB_VERT}) {
+		SCROLLINFO si = {sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS};
+		si.nMax = (bar == SB_HORZ ? natural.cx : natural.cy) - 1;
+		si.nPage = std::max(0, bar == SB_HORZ ? r.Width() : r.Height());
+		si.nPos = GetScrollPos(bar);
+		SetScrollInfo(bar, &si, TRUE);
 	}
+	GetClientRect(r);
+	m_dlg.MoveWindow(-GetScrollPos(SB_HORZ), -GetScrollPos(SB_VERT),
+		std::max<LONG>(r.Width(), natural.cx), std::max<LONG>(r.Height(), natural.cy));
+	m_layingOut = false;
+}
+
+void CKHRadioBar::Scroll(UINT code, int bar)
+{
+	SCROLLINFO si = {sizeof(si), SIF_ALL};
+	GetScrollInfo(bar, &si);
+	int pos = si.nPos;
+	const int line = MulDiv(24, GetDpiForWindow(m_hWnd), 96);
+	switch (code) {
+		case SB_LINEUP: pos -= line; break;
+		case SB_LINEDOWN: pos += line; break;
+		case SB_PAGEUP: pos -= si.nPage; break;
+		case SB_PAGEDOWN: pos += si.nPage; break;
+		case SB_THUMBPOSITION: case SB_THUMBTRACK: pos = si.nTrackPos; break;
+		case SB_TOP: pos = si.nMin; break;
+		case SB_BOTTOM: pos = si.nMax; break;
+		default: return;
+	}
+	SetScrollPos(bar, std::clamp(pos, si.nMin, std::max(si.nMin, si.nMax-(int)si.nPage+1)), TRUE);
+	LayoutViewport();
+}
+
+void CKHRadioBar::OnVScroll(UINT code, UINT pos, CScrollBar* bar)
+{
+	if (!bar) { Scroll(code, SB_VERT); } else { __super::OnVScroll(code, pos, bar); }
+}
+
+void CKHRadioBar::OnHScroll(UINT code, UINT pos, CScrollBar* bar)
+{
+	if (!bar) { Scroll(code, SB_HORZ); } else { __super::OnHScroll(code, pos, bar); }
+}
+
+BOOL CKHRadioBar::OnMouseWheel(UINT flags, short delta, CPoint point)
+{
+	SCROLLINFO si = {sizeof(si), SIF_RANGE | SIF_PAGE};
+	GetScrollInfo(SB_VERT, &si);
+	if (si.nMax >= (int)si.nPage) {
+		Scroll(delta > 0 ? SB_LINEUP : SB_LINEDOWN, SB_VERT);
+		return TRUE;
+	}
+	return __super::OnMouseWheel(flags, delta, point);
+}
+
+void CKHRadioBar::EnsureFocusVisible()
+{
+	CWnd* focus = GetFocus();
+	if (!focus || !m_dlg.IsChild(focus)) { return; }
+	CRect control, viewport;
+	focus->GetWindowRect(control);
+	ScreenToClient(control);
+	GetClientRect(viewport);
+	for (int bar : {SB_HORZ, SB_VERT}) {
+		const int start = bar == SB_HORZ ? control.left : control.top;
+		const int end = bar == SB_HORZ ? control.right : control.bottom;
+		const int extent = bar == SB_HORZ ? viewport.Width() : viewport.Height();
+		const int delta = start < 0 ? start : (end > extent ? end-extent : 0);
+		SetScrollPos(bar, GetScrollPos(bar)+delta, TRUE);
+	}
+	LayoutViewport();
 }
 
 void CKHRadioBar::OnNcLButtonUp(UINT nHitTest, CPoint point)

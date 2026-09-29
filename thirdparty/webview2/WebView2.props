@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <KHWebView2Sdk>$(SolutionDir)_bin\WebView2\1.0.4258.31</KHWebView2Sdk>
+    <KHWebView2Platform>$(Platform)</KHWebView2Platform>
+    <KHWebView2Platform Condition="'$(Platform)'=='Win32'">x86</KHWebView2Platform>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(KHWebView2Sdk)\build\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(KHWebView2Sdk)\build\native\$(KHWebView2Platform)\WebView2LoaderStatic.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="RestoreKHWebView2" BeforeTargets="PrepareForBuild" Condition="!Exists('$(KHWebView2Sdk)\restored.txt')">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(SolutionDir)thirdparty\webview2\restore.ps1&quot; -Destination &quot;$(KHWebView2Sdk)&quot;" />
+  </Target>
+</Project>

@@ -19,6 +19,7 @@
  */
 
 #include "stdafx.h"
+#include "KHWebSession.h"
 #include "mplayerc.h"
 #include "DSUtil/text.h"
 #include "KHInsider.h"
@@ -709,10 +710,24 @@ namespace KHInsider
 		return body;
 	}
 
-	// Translate an HTTP failure into a FetchStatus for the UI.
-	static FetchStatus StatusFromHttp(DWORD httpStatus)
+	static bool FetchPage(const CStringW& url, const CStringA& body, urlData& data,
+		CStringW* finalUrl, FetchStatus* status)
 	{
-		return (httpStatus >= 400) ? FetchStatus::Blocked : FetchStatus::NetworkError;
+		auto response = KHWebSession::Request(url.GetString(), body.GetString());
+		FetchStatus result = FetchStatus::NetworkError;
+		switch (response.status) {
+			case KHWebSession::Status::Ready: result = FetchStatus::Success; break;
+			case KHWebSession::Status::LoginRequired: result = FetchStatus::LoginRequired; break;
+			case KHWebSession::Status::Blocked: result = FetchStatus::Blocked; break;
+			case KHWebSession::Status::Unavailable: result = FetchStatus::BrowserUnavailable; break;
+			case KHWebSession::Status::LayoutChanged: result = FetchStatus::LayoutChanged; break;
+		}
+		if (status) { *status = result; }
+		if (result != FetchStatus::Success) { return false; }
+		data.assign(response.html.begin(), response.html.end());
+		data.push_back(0);
+		if (finalUrl) { *finalUrl = response.url.c_str(); }
+		return true;
 	}
 
 	bool FetchRandomAlbum(const CStringA& formBody, Album& album, FetchStatus* pStatus)
@@ -726,9 +741,7 @@ namespace KHInsider
 
 		urlData data;
 		CStringW finalUrl;
-		DWORD httpStatus = 0;
-		if (!URLRequest(L"POST", url, formBody, data, &finalUrl, nullptr, 0, &httpStatus)) {
-			if (pStatus) { *pStatus = StatusFromHttp(httpStatus); }
+		if (!FetchPage(url, formBody, data, &finalUrl, pStatus)) {
 			return false;
 		}
 
@@ -750,9 +763,7 @@ namespace KHInsider
 	bool FetchAlbum(const CStringW& albumUrl, Album& album, FetchStatus* pStatus)
 	{
 		urlData data;
-		DWORD httpStatus = 0;
-		if (!URLRequest(L"GET", albumUrl, CStringA(), data, nullptr, nullptr, 0, &httpStatus)) {
-			if (pStatus) { *pStatus = StatusFromHttp(httpStatus); }
+		if (!FetchPage(albumUrl, CStringA(), data, nullptr, pStatus)) {
 			return false;
 		}
 
@@ -765,10 +776,10 @@ namespace KHInsider
 		return true;
 	}
 
-	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl)
+	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl, FetchStatus* pStatus)
 	{
 		urlData data;
-		if (!URLRequest(L"GET", trackPageUrl, CStringA(), data)) {
+		if (!FetchPage(trackPageUrl, CStringA(), data, nullptr, pStatus)) {
 			return L"";
 		}
 

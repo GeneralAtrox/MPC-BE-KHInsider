@@ -1664,6 +1664,15 @@ void CMainFrame::OnGetMinMaxInfo(MINMAXINFO* lpMMI)
 	lpMMI->ptMinTrackSize.x += cSize.cx;
 	lpMMI->ptMinTrackSize.y += cSize.cy;
 
+	if (m_wndKHRadioBar.m_hWnd && m_wndKHRadioBar.IsVisible() && !m_wndKHRadioBar.IsFloating()) {
+		const CSize radio = m_wndKHRadioBar.GetMinimumSize();
+		if (m_wndKHRadioBar.IsHorzDocked()) {
+			lpMMI->ptMinTrackSize.x = std::max(lpMMI->ptMinTrackSize.x, radio.cx);
+		} else {
+			lpMMI->ptMinTrackSize.y = std::max(lpMMI->ptMinTrackSize.y, radio.cy + cSize.cy);
+		}
+	}
+
 	if (bMenuVisible) {
 		MENUBARINFO mbi = { sizeof(mbi) };
 		GetMenuBarInfo(OBJID_MENU, 0, &mbi);
@@ -1702,6 +1711,16 @@ void CMainFrame::OnGetMinMaxInfo(MINMAXINFO* lpMMI)
 	// Final phase
 	lpMMI->ptMinTrackSize.x = std::max(lpMMI->ptMinTrackSize.x, (LONG)GetSystemMetrics(SM_CXMIN));
 	lpMMI->ptMinTrackSize.y = std::max(lpMMI->ptMinTrackSize.y, (LONG)GetSystemMetrics(SM_CYMIN));
+
+	// On a small/high-DPI display the radio form scrolls inside the available
+	// work area; a minimum size must never force the window off screen.
+	if (m_wndKHRadioBar.m_hWnd && m_wndKHRadioBar.IsVisible()) {
+		MONITORINFO monitor = {sizeof(monitor)};
+		if (GetMonitorInfoW(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor)) {
+			lpMMI->ptMinTrackSize.x = std::min(lpMMI->ptMinTrackSize.x, monitor.rcWork.right-monitor.rcWork.left);
+			lpMMI->ptMinTrackSize.y = std::min(lpMMI->ptMinTrackSize.y, monitor.rcWork.bottom-monitor.rcWork.top);
+		}
+	}
 
 	lpMMI->ptMaxTrackSize.x = GetSystemMetrics(SM_CXVIRTUALSCREEN) + decorationsRect.Width();
 	lpMMI->ptMaxTrackSize.y = GetSystemMetrics(SM_CYVIRTUALSCREEN)
@@ -2203,6 +2222,7 @@ LRESULT CMainFrame::OnDpiChanged(WPARAM wParam, LPARAM lParam)
 	m_wndStatsBar.ScaleFont();
 	m_wndSeekBar.ScaleFont();
 	m_wndPlaylistBar.ScaleFont();
+	m_wndKHRadioBar.ScaleForDPI(dpiy);
 	m_wndStatusBar.ScaleFont();
 	m_wndPreView.ScaleFont();
 	m_wndFlyBar.Scale();

@@ -53,6 +53,8 @@ namespace KHInsider
 		NetworkError,  // no usable response (offline, timeout, DNS)
 		Blocked,       // HTTP 4xx - Cloudflare / bot protection likely changed
 		LayoutChanged, // page fetched but no tracks could be parsed
+		LoginRequired,
+		BrowserUnavailable,
 	};
 
 	// POST body for the random-album-advanced form. Each list holds the numeric
@@ -67,7 +69,7 @@ namespace KHInsider
 
 	// GET a track page and extract the direct audio URL (mp3 preferred).
 	// Returns an empty string on failure.
-	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl);
+	CStringW ResolveTrackAudioUrl(const CStringW& trackPageUrl, FetchStatus* pStatus = nullptr);
 
 	// Download a binary resource (e.g. cover image) to a local file.
 	bool DownloadToFile(const CStringW& url, const CStringW& localPath);

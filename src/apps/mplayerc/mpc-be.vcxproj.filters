@@ -189,6 +189,9 @@
     <ClCompile Include="PlayerKHRadioBar.cpp">
       <Filter>Panels</Filter>
     </ClCompile>
+    <ClCompile Include="KHWebSession.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="KHInsider.cpp">
       <Filter>Panels</Filter>
     </ClCompile>
@@ -661,6 +664,12 @@
     </ClInclude>
     <ClInclude Include="PlayerKHRadioBar.h">
       <Filter>Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="KHWebSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KHRadioLayout.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KHInsider.h">
       <Filter>Panels</Filter>

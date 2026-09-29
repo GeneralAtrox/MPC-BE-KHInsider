@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{EA12D755-6335-4118-A68A-B9098ABCF2AB}</ProjectGuid></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <SolutionDir>$(MSBuildThisFileDirectory)..\</SolutionDir>
+    <OutDir>$(SolutionDir)_bin\tests\</OutDir>
+    <IntDir>$(OutDir)obj\</IntDir>
+  </PropertyGroup>
+  <Import Project="..\thirdparty\webview2\WebView2.props" />
+  <ItemDefinitionGroup>
+    <ClCompile><LanguageStandard>stdcpp17</LanguageStandard><ExceptionHandling>Sync</ExceptionHandling><AdditionalIncludeDirectories>$(SolutionDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+    <Link><SubSystem>Console</SubSystem><AdditionalDependencies>user32.lib;ole32.lib;shell32.lib;advapi32.lib;shlwapi.lib;version.lib;uuid.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="khinsider-session.cpp" /><ClCompile Include="..\src\apps\mplayerc\KHWebSession.cpp" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

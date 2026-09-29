@@ -37,6 +37,7 @@
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="$(SolutionDir)src\common.props" />
+    <Import Project="$(SolutionDir)thirdparty\webview2\WebView2.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
@@ -143,6 +144,9 @@
     <ClCompile Include="Ifo.cpp" />
     <ClCompile Include="KeyProvider.cpp" />
     <ClCompile Include="KHInsider.cpp" />
+    <ClCompile Include="KHWebSession.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="LcdSupport.cpp" />
     <ClCompile Include="MainFrm.cpp" />
     <ClCompile Include="MediaFormats.cpp" />
@@ -281,6 +285,8 @@
     <ClInclude Include="Ifo.h" />
     <ClInclude Include="KeyProvider.h" />
     <ClInclude Include="KHInsider.h" />
+    <ClInclude Include="KHWebSession.h" />
+    <ClInclude Include="KHRadioLayout.h" />
     <ClInclude Include="LcdSupport.h" />
     <ClInclude Include="MainFrm.h" />
     <ClInclude Include="MediaFormats.h" />

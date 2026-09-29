@@ -19,4 +19,48 @@ that replicates the site's [Random Album Advanced](https://downloads.khinsider.c
 
 Toggle the panel via **View → KH Radio**.
 
+### Signing in
+
+Click **Sign in to KHInsider...** in the radio panel and sign in on KHInsider's
+own page. Select **Stay logged in** there to retain your login between launches.
+The window closes after the app verifies access to Random Album Advanced.
+Use **KHInsider account...** to open the site again, including to log out.
+
+The app uses Microsoft Edge WebView2 for both sign-in and album/track page
+requests. Its private browser profile is stored under
+`%LOCALAPPDATA%\MPC-BE\KHInsider.WebView2`, separate from player settings and
+playlists. Do not distribute that profile. Password saving is disabled; the
+site's session cookies remain in the browser. If access expires, the radio
+asks you to sign in again. Site verification and network failures have separate
+messages.
+
+The [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+must be installed. The SDK's static loader is linked into the player, so there
+is no additional WebView2 DLL to copy beside the executable.
+
+### Window size
+
+The main window reserves room for the radio form, accounting for Windows display
+scaling. On smaller displays, or when the panel is floating, scrollbars keep the
+whole form reachable. Keyboard navigation scrolls the focused control into view.
+
+### Building and checking this change
+
+Use the existing Visual Studio/MFC and MSYS build setup. The player project
+automatically restores the pinned WebView2 SDK from NuGet on its first build;
+internet access is required for that restore.
+
+The focused session tests can be built independently of the media libraries:
+
+```powershell
+msbuild tests\khinsider-session.vcxproj /p:Configuration=Debug /p:Platform=x64
+_bin\tests\khinsider-session.exe
+_bin\tests\khinsider-session.exe --live
+```
+
+`--live` checks the current KHInsider session. `--login` opens the actual login
+page and, after sign-in, requests three random albums. It uses the same private
+profile as the player. These checks do not validate audible playback; also test
+the player at 100%, 150% and 200% scaling, with the panel docked and floating.
+
 <img width="1680" height="1002" alt="image" src="https://github.com/user-attachments/assets/1d926377-b7e7-45a7-86a5-f450e5f5ac9b" />

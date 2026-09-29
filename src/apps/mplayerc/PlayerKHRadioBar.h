@@ -38,7 +38,7 @@
 // CKHRadioDlg dialog — replica of the site's "Random Album Advanced" form
 // plus listening history.
 
-class CKHRadioDlg : public CResizableDialog
+class CKHRadioDlg : public CDialog
 {
 public:
 	CKHRadioDlg();
@@ -58,6 +58,7 @@ public:
 	CButton  m_checkFilterSpoken;
 	CButton  m_checkExclusive;
 	CButton  m_buttonRandom;
+	CButton  m_buttonLogin;
 	CStatic  m_staticStatus;
 	CListBox m_listHistory;
 
@@ -67,6 +68,8 @@ public:
 	// called from CMainFrame when the playlist reaches its end; returns true if
 	// the radio is taking over (fetching the next album) instead of stopping.
 	bool ContinueRadioAtEnd();
+	void ScaleForDPI(UINT dpi);
+	CSize GetNaturalSize() const;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -83,6 +86,9 @@ protected:
 	afx_msg void OnFilterSpokenClicked();
 	afx_msg void OnExclusiveClicked();
 	afx_msg void OnRandomAlbum();
+	afx_msg void OnLogin();
+	afx_msg void OnSize(UINT type, int cx, int cy);
+	afx_msg LRESULT OnSessionStatus(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnHistoryDblClk();
 	afx_msg LRESULT OnKHRadioStatus(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnKHRadioAlbum(WPARAM wParam, LPARAM lParam);
@@ -91,6 +97,13 @@ protected:
 	afx_msg LRESULT OnKHRadioCover(WPARAM wParam, LPARAM lParam);
 
 private:
+	struct LayoutItem { HWND window; CRect rect; };
+	std::vector<LayoutItem> m_layout;
+	CSize m_templateSize = CSize(0, 0);
+	LOGFONT m_templateFont = {};
+	CFont m_scaledFont;
+	UINT m_templateDpi = 96;
+	UINT m_layoutDpi = 96;
 	struct FetchParams {
 		HWND hWnd = nullptr;
 		UINT gen = 0;
@@ -172,6 +185,8 @@ public:
 	virtual COLORREF ColorThemeRGB(const int iR, const int iG, const int iB) const;
 
 	CKHRadioDlg m_dlg;
+	CSize GetMinimumSize() const;
+	void ScaleForDPI(UINT dpi);
 
 protected:
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
@@ -179,5 +194,16 @@ protected:
 
 public:
 	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnVScroll(UINT code, UINT pos, CScrollBar* bar);
+	afx_msg void OnHScroll(UINT code, UINT pos, CScrollBar* bar);
+	afx_msg BOOL OnMouseWheel(UINT flags, short delta, CPoint point);
+	afx_msg void OnWindowPosChanged(WINDOWPOS* position);
 	afx_msg void OnNcLButtonUp(UINT nHitTest, CPoint point);
+
+private:
+	void LayoutViewport();
+	void Scroll(UINT code, int bar);
+	void EnsureFocusVisible();
+	bool m_layingOut = false;
+	UINT m_barDpi = 0;
 };

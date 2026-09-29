@@ -1,6 +1,6 @@
 name: KHInsider scraper health check
 
-# Daily probe of the same request path the KH Radio scraper uses, so a
+# Daily anonymous probe of the endpoint the KH Radio scraper uses, so a
 # KHInsider redesign or tightened bot protection is caught before it breaks
 # your listening session.
 #
@@ -61,6 +61,14 @@ jobs:
             summary "The site returned HTTP \`$http\` (expected 200) - worth a manual look."
             echo "::error::KHInsider returned HTTP $http."
             exit 1
+          fi
+
+          # The player now signs in through its local WebView2 profile. CI has
+          # no user session; a login page does not demonstrate a parser failure.
+          if grep -Eqi 'Please Log In|need to be registered and logged in' album.html; then
+            summary "### KHInsider health check: authentication required"
+            summary "The site requires login. Anonymous CI cannot verify album parsing; run the local authenticated session test."
+            exit 0
           fi
 
           # We reached an album page, so the checks below are meaningful: a
