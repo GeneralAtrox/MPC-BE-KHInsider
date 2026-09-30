@@ -70,6 +70,13 @@ int main(int argc, char** argv)
 			MsgWaitForMultipleObjects(0, nullptr, FALSE, 20, QS_ALLINPUT);
 		}
 		printf("Live browser status: %d (Ready=1, LoginRequired=2)\n", (int)GetStatus());
+		if (std::string(argv[1]) == "--require-login" && GetStatus() != Status::Ready) {
+			fputs("FAIL: saved sign-in was not restored in this process\n", stderr);
+			Shutdown();
+			DestroyWindow(owner);
+			CoUninitialize();
+			return 1;
+		}
 		assert(GetStatus() == Status::LoginRequired || GetStatus() == Status::Ready);
 		if (GetStatus() == Status::LoginRequired) {
 			auto request = std::async(std::launch::async, [] { return Request(L"https://downloads.khinsider.com/random-album-advanced"); });

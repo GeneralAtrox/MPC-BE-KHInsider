@@ -70,7 +70,6 @@ struct Session : std::enable_shared_from_this<Session> {
 	ComPtr<ICoreWebView2> web;
 	bool documentReady = false;
 	bool loginRequested = false;
-	bool closeAfterLogin = false;
 	ULONGLONG initialized = GetTickCount64();
 	std::wstring profile;
 
@@ -130,10 +129,10 @@ struct Session : std::enable_shared_from_this<Session> {
 		if (probe || result == Status::LoginRequired || result == Status::Blocked) {
 			SetStatus(result);
 		}
-		if (probe && result == Status::Ready && closeAfterLogin) {
+		if (probe && result == Status::Ready) {
 			loginRequested = false;
-			closeAfterLogin = false;
-			ShowWindow(window, SW_HIDE);
+			// Keep an opened sign-in window visible so the user can answer the
+			// browser's Save Password prompt before closing it themselves.
 		}
 	}
 
@@ -206,7 +205,12 @@ struct Session : std::enable_shared_from_this<Session> {
 		web->get_Settings(&settings);
 		if (settings) {
 			ComPtr<ICoreWebView2Settings4> settings4;
-			if (SUCCEEDED(settings.As(&settings4))) { settings4->put_IsPasswordAutosaveEnabled(FALSE); }
+			if (SUCCEEDED(settings.As(&settings4))) {
+				// Saving is opt-in through WebView2's own prompt. Passwords stay
+				// in its per-user profile; native code never reads the form.
+				settings4->put_IsPasswordAutosaveEnabled(TRUE);
+				settings4->put_IsGeneralAutofillEnabled(TRUE);
+			}
 		}
 		const std::weak_ptr<Session> weak = shared_from_this();
 		web->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
@@ -391,7 +395,6 @@ void ShowLogin()
 	auto s = std::atomic_load(&current);
 	if (!s || !s->window) { return; }
 	s->loginRequested = true;
-	s->closeAfterLogin = s->status != Status::Ready;
 	ShowWindow(s->window, SW_SHOWNORMAL);
 	SetForegroundWindow(s->window);
 	if (s->status == Status::Unavailable && s->controller) {
